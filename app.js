@@ -53,7 +53,7 @@
   }
 
   /* ---------- state ---------- */
-  var CODE = null, WEDS = [], MADE = '', ST = {}, UI = { view: 'home', wid: null, tab: 'now' };
+  var EDIT = false, CODE = null, WEDS = [], MADE = '', ST = {}, UI = { view: 'home', wid: null, tab: 'now' };
   try { var u0 = JSON.parse(localStorage.getItem('gabi-day-ui') || 'null'); if (u0) UI = u0; } catch (e) {}
   function saveUI() { try { localStorage.setItem('gabi-day-ui', JSON.stringify(UI)); } catch (e) {} }
   function stOf(wid) { if (!ST[wid]) ST[wid] = { done: {}, fam: {}, open: {}, notes: '', filter: 'all', y: {} }; return ST[wid]; }
@@ -108,11 +108,12 @@
     var up = list.filter(function (D) { return D.date >= today; }), past = list.filter(function (D) { return D.date < today; }).reverse();
     function card(D) {
       var s = stOf(D.id), n = Object.keys(s.done).filter(function (k) { return s.done[k] && k.charAt(0) !== 't'; }).length + Object.keys(s.fam).filter(function (k) { return s.fam[k]; }).length;
-      return '<div style="position:relative"><button class="card wed" data-wid="' + e(D.id) + '" style="padding-right:84px"><b>' + e(D.couple) + '</b>' + (D.date === today ? '<span class="badge">Today</span>' : '') +
+      return '<div style="position:relative"><button class="card wed" data-wid="' + e(D.id) + '" style="' + (EDIT ? 'padding-right:84px' : '') + '"><b>' + e(D.couple) + '</b>' + (D.date === today ? '<span class="badge">Today</span>' : '') +
         '<div class="hint">' + e(D.dateLabel) + (D.venue ? ' \u00b7 ' + e(D.venue) : '') + '</div>' +
         '<div class="hint">' + D.shots.length + ' shots \u00b7 ' + D.fam.length + ' family groups' + (n ? ' \u00b7 ' + n + ' checked' : '') + '</div></button>' +
-        '<button class="btn dg" data-rm="' + e(D.id) + '" style="position:absolute;right:10px;top:12px;min-height:38px;padding:0 10px;font-size:14px">Remove</button></div>';
+        (EDIT ? '<button class="btn dg" data-rm="' + e(D.id) + '" style="position:absolute;right:10px;top:12px;min-height:38px;padding:0 10px;font-size:14px">Remove</button>' : '') + '</div>';
     }
+    if (list.length) h += '<div style="display:flex;justify-content:flex-end;margin:-4px 0 6px"><button class="back" data-act="edit" style="padding:6px 0">' + (EDIT ? 'Done' : 'Edit') + '</button></div>';
     up.forEach(function (D) { h += card(D); });
     if (past.length) h += '<h2>Past weddings</h2>' + past.map(card).join('');
     h += '<div class="btns"><button class="btn ok full" data-act="load">Load weddings from my main app</button></div>';
@@ -120,7 +121,7 @@
     if (list.length) h += '<div class="btns"><button class="btn full" data-act="sendback">Send checkmarks & notes back to my main app</button></div>';
     h += installHint();
     h += '<details class="card" style="margin-top:16px"><summary><b>Settings</b></summary>' +
-      '<p class="hint">Everything is stored only on this phone. App version 3.</p>' +
+      '<p class="hint">Everything is stored only on this phone. App version 4.</p>' +
       '<div class="btns"><button class="btn" data-act="changecode">Change pairing code</button><button class="btn dg" data-act="wipe">Remove all weddings from this phone</button></div></details>';
     return h;
   }
@@ -258,7 +259,7 @@
     var b = ev.target.closest('button'); if (!b) return;
     var D = cur(), S = D ? stOf(D.id) : null;
     if (b.dataset.go === 'home') { if (D) S.y[UI.tab] = window.scrollY; UI.view = 'home'; UI.chose = weddingDay(); saveUI(); saveST(); render(false); return; }
-    if (b.dataset.wid) { UI.homeY = window.scrollY; UI.view = 'wedding'; UI.wid = b.dataset.wid; if (!UI.tab) UI.tab = 'now'; saveUI(); render(false); return; }
+    if (b.dataset.wid) { EDIT = false; UI.homeY = window.scrollY; UI.view = 'wedding'; UI.wid = b.dataset.wid; if (!UI.tab) UI.tab = 'now'; saveUI(); render(false); return; }
     if (b.dataset.tab) { if (S) S.y[UI.tab] = window.scrollY; UI.tab = b.dataset.tab; saveUI(); saveST(); render(false); return; }
     if (S && b.dataset.t) { S.done[b.dataset.t] = !S.done[b.dataset.t]; saveST(); render(true); return; }
     if (S && b.dataset.f) { S.fam[b.dataset.f] = !S.fam[b.dataset.f]; saveST(); render(true); return; }
@@ -281,6 +282,7 @@
     }
     if (act === 'changecode') { if (confirm('Change the pairing code? Your weddings stay on this phone.')) { CODE = null; del('code'); render(false); } return; }
     if (act === 'wipe') { if (confirm('Remove all weddings, checkmarks and notes from this phone? Your main app keeps everything.')) { WEDS = []; ST = {}; MADE = ''; UI = { view: 'home', wid: null, tab: 'now' }; saveUI(); Promise.all([del('weddings'), del('state'), del('made')]).then(function () { render(false); toast('Removed from this phone'); }); } return; }
+    if (act === 'edit') { EDIT = !EDIT; render(true); return; }
     if (act === 'load') { loadWeddings(); return; }
     if (act === 'sendback') { sendBack(); return; }
     if (act === 'wake') { wake(true); return; }
