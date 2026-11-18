@@ -54,7 +54,7 @@
 
 
   /* ---------- state ---------- */
-  var VERSION = 8, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
+  var VERSION = 10, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
   var UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' };
   try { var u0 = JSON.parse(localStorage.getItem('gabi-day-ui') || 'null'); if (u0) { for (var k0 in u0) UI[k0] = u0[k0]; } } catch (e) {}
   if (['home', 'weddings', 'sync', 'settings', 'wedding'].indexOf(UI.view) < 0) UI.view = 'home';
@@ -167,7 +167,7 @@
     h += more.length ? '<div class="list">' + more.map(function (D) { return wedRow(D, false); }).join('') + '</div>' : '<p class="sub">No other upcoming weddings yet.</p>';
     var mo = today.slice(0, 7), thisMonth = up.filter(function (D) { return D.date.slice(0, 7) === mo; }).length;
     h += '<div class="stat"><div><b>' + up.length + '</b><small>Upcoming</small></div><div><b>' + thisMonth + '</b><small>This month</small></div></div>';
-    h += '<button class="btn" data-act="load" style="justify-content:space-between;background:var(--tint);border-color:transparent"><span>+ &nbsp;Load weddings from my main app</span><span>→</span></button>';
+    h += '<button class="btn" data-act="sync" style="justify-content:space-between;background:var(--tint);border-color:transparent"><span>' + svg('sync').replace('<svg', '<svg style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8"') + ' &nbsp;' + (SYNCING ? 'Syncing\u2026' : 'Sync with my main app') + '</span><span>\u2192</span></button><p class="hint" style="text-align:center">Last synced: ' + e(lastSync()) + '</p>';
     return h + installHint();
   }
   function vWeddings() {
@@ -179,7 +179,7 @@
     return h;
   }
   function vSync() {
-    return '<h1 class="hello">Sync</h1><p class="sub">Move weddings and checkmarks between this phone and your main app.</p>' +
+    return '<h1 class="hello">Sync</h1><p class="sub">Move weddings and checkmarks between this phone and your main app.</p>' + syncCard() + '<div class="h2" style="font-size:18px">Or use files</div>' +
       '<div class="card"><b>1. Get weddings</b><p class="hint">In your main app tap <b>📲 Send to my Day-of app</b>, then tap below and pick the file.</p><button class="btn dark" data-act="load">Load weddings</button>' + (MADE ? '<p class="hint" style="margin-bottom:0">Last file: sent ' + e(MADE) + '.</p>' : '') + '</div>' +
       '<div class="card"><b>2. After the wedding</b><p class="hint">Send your checkmarks and notes back. In your main app tap <b>Load Day-of app results</b> and pick the file.</p><button class="btn" data-act="sendback">Send checkmarks & notes back</button></div>';
   }
@@ -445,23 +445,25 @@
       inp.click();
     });
   }
+  function applyWeddingsText(t) {
+    return unlock(t, CODE).then(function (r) {
+      if (r.kind !== 'weddings' || !Array.isArray(r.data.weddings)) throw new Error('That file is not a weddings file from your main app.');
+      var got = r.data.weddings, ids = got.map(function (x) { return x.id; });
+      WEDS = WEDS.filter(function (x) { return ids.indexOf(x.id) < 0; }).concat(got); MADE = r.data.made || '';
+      return Promise.all([put('weddings', WEDS), put('made', MADE)]).then(function () { return got.length; });
+    });
+  }
   function loadWeddings() {
     pickFile().then(function (f) {
       if (!f) return;
-      return f.text().then(function (t) { return unlock(t, CODE); }).then(function (r) {
-        if (r.kind !== 'weddings' || !Array.isArray(r.data.weddings)) throw new Error('That file is not a weddings file from your main app.');
-        var got = r.data.weddings, ids = got.map(function (x) { return x.id; });
-        WEDS = WEDS.filter(function (x) { return ids.indexOf(x.id) < 0; }).concat(got); MADE = r.data.made || '';
-        return Promise.all([put('weddings', WEDS), put('made', MADE)]).then(function () {
-          render(false); toast('✓ ' + got.length + ' wedding' + (got.length === 1 ? '' : 's') + ' saved on this phone');
-        });
-      });
+      return f.text().then(applyWeddingsText).then(function (n) { render(false); toast('✓ ' + n + ' wedding' + (n === 1 ? '' : 's') + ' saved on this phone'); });
     }).catch(function (err) { toast(err && err.message ? err.message : 'Could not open that file.'); });
   }
   function sendBack() {
     Promise.all(WEDS.map(function (D) { return loadPhotos(D.id); })).then(sendBack2);
   }
-  function sendBack2() {
+  function buildResults() {
+    return Promise.all(WEDS.map(function (D) { return loadPhotos(D.id); })).then(function () {
     var out = { made: new Date().toLocaleString(), weddings: {} };
     WEDS.forEach(function (D) {
       var S = stOf(D.id), shots = {}, fam = {}, ph = photosOf(D.id);
@@ -469,8 +471,13 @@
       D.fam.forEach(function (x) { if (S.fam[x.id]) fam[x.id] = true; });
       if (Object.keys(shots).length || Object.keys(fam).length || String(S.notes || '').trim() || ph.length) out.weddings[D.id] = { couple: D.couple, shots: shots, fam: fam, notes: String(S.notes || ''), photos: ph };
     });
-    if (!Object.keys(out.weddings).length) { toast('Nothing to send yet. Check off shots or add notes first.'); return; }
-    lock(out, CODE, 'results').then(function (text) {
+    if (!Object.keys(out.weddings).length) return null;
+    return lock(out, CODE, 'results');
+    });
+  }
+  function sendBack2() {
+    buildResults().then(function (text) {
+      if (!text) { toast('Nothing to send yet. Check off shots or add notes first.'); return; }
       var name = 'Wedding Day results ' + new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-') + '.gabiday';
       var file = new File([text], name, { type: 'application/octet-stream' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -480,6 +487,66 @@
       setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
       toast('Saved. Now open your main app and tap Load Day-of app results.');
     });
+  }
+
+  /* ---------- Google Drive sync (both directions, one tap) ---------- */
+  var CLIENT_ID = '973265022633-aadpqn0c7o6tjq5difdhngsvuj8ninhm.apps.googleusercontent.com';
+  var SCOPES = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file';
+  var TOK = null, TOKEXP = 0, SYNCING = false;
+  function gis() {
+    if (window.google && google.accounts && google.accounts.oauth2) return Promise.resolve();
+    return new Promise(function (res, rej) { var sc = document.createElement('script'); sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true; sc.onload = function () { res(); }; sc.onerror = function () { rej(new Error('Could not reach Google. Check your signal and try again.')); }; document.head.appendChild(sc); });
+  }
+  function token() {
+    if (TOK && Date.now() < TOKEXP - 60000) return Promise.resolve(TOK);
+    return gis().then(function () {
+      return new Promise(function (res, rej) {
+        var tc = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: function (r) {
+          if (r && r.access_token) { TOK = r.access_token; TOKEXP = Date.now() + (+r.expires_in || 3600) * 1000; res(TOK); }
+          else rej(new Error('Google sign-in did not finish.'));
+        }, error_callback: function (er) { rej(new Error(er && er.type === 'popup_closed' ? 'Sign-in was closed. Tap Sync again.' : 'Google sign-in did not finish. Tap Sync again.')); } });
+        tc.requestAccessToken({ prompt: '' });
+      });
+    });
+  }
+  function gfetch(url, opt) {
+    return token().then(function (t) { opt = opt || {}; opt.headers = Object.assign({ Authorization: 'Bearer ' + t }, opt.headers || {}); return fetch(url, opt); })
+      .then(function (r) {
+        if (r.status === 401) { TOK = null; throw new Error('Google asked to sign in again. Tap Sync again.'); }
+        if (!r.ok) return r.text().then(function (x) { throw new Error(/storageQuotaExceeded|quota/i.test(x) ? 'That Google Drive is full. Sign in with your other account.' : 'Google Drive said no (' + r.status + '). Try again.'); });
+        return r;
+      });
+  }
+  var API = 'https://www.googleapis.com/drive/v3/files';
+  function findFile(q) { return gfetch(API + '?q=' + encodeURIComponent(q + ' and trashed = false') + '&orderBy=modifiedTime%20desc&pageSize=1&spaces=drive&fields=files(id,name,modifiedTime)').then(function (r) { return r.json(); }).then(function (j) { return (j.files || [])[0] || null; }); }
+  function syncNow() {
+    if (SYNCING) return;
+    if (!navigator.onLine) { toast('No signal right now. Sync when you have service.'); return; }
+    SYNCING = true; render(true);
+    var got = 0, sent = false;
+    token().then(function () { return findFile("name contains 'Gabi Wedding Day - to phone'"); }).then(function (f) {
+      if (!f) return;
+      var seen = null; try { seen = localStorage.getItem('gabi-day-lastin'); } catch (x) {}
+      if (seen === f.id + '@' + f.modifiedTime) return;
+      return gfetch(API + '/' + f.id + '?alt=media').then(function (r) { return r.text(); }).then(applyWeddingsText).then(function (n) { got = n; try { localStorage.setItem('gabi-day-lastin', f.id + '@' + f.modifiedTime); } catch (x) {} });
+    }).then(buildResults).then(function (text) {
+      if (!text) return;
+      return findFile("name = 'Gabi Wedding Day - from phone.txt'").then(function (f) {
+        if (f) return gfetch('https://www.googleapis.com/upload/drive/v3/files/' + f.id + '?uploadType=media', { method: 'PATCH', headers: { 'Content-Type': 'text/plain' }, body: text });
+        var bd = 'gabi' + Date.now(), body = '--' + bd + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify({ name: 'Gabi Wedding Day - from phone.txt', mimeType: 'text/plain' }) + '\r\n--' + bd + '\r\nContent-Type: text/plain\r\n\r\n' + text + '\r\n--' + bd + '--';
+        return gfetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + bd }, body: body });
+      }).then(function () { sent = true; });
+    }).then(function () {
+      try { localStorage.setItem('gabi-day-lastsync', String(Date.now())); } catch (x) {}
+      SYNCING = false; render(false);
+      toast('✓ Synced' + (got ? ' · ' + got + ' wedding' + (got === 1 ? '' : 's') + ' updated' : ' · weddings up to date') + (sent ? ' · checkmarks sent' : ''));
+    }).catch(function (err) { SYNCING = false; render(true); toast(err && err.message ? err.message : 'Sync did not finish. Try again.'); });
+  }
+  function lastSync() { var t = 0; try { t = +localStorage.getItem('gabi-day-lastsync') || 0; } catch (x) {} return t ? new Date(t).toLocaleString() : 'never'; }
+  function syncCard() {
+    return '<div class="card"><div style="display:flex;align-items:center;gap:12px"><span class="ico">' + svg('sync') + '</span><div style="flex:1"><b style="font-size:18px">Sync with Google Drive</b><div class="sub">Last synced: ' + e(lastSync()) + '</div></div></div>' +
+      '<p class="hint">Gets the weddings you sent from your main app, and sends your checkmarks, notes and photo notes back. Sign in with the Google account you use in Claude.</p>' +
+      '<button class="btn dark" data-act="sync"' + (SYNCING ? ' disabled' : '') + '>' + (SYNCING ? 'Syncing…' : 'Sync now') + '</button></div>';
   }
 
   /* ---------- keep the screen on ---------- */
@@ -559,6 +626,7 @@
     if (act === 'edit') { EDIT = !EDIT; render(true); return; }
     if (act === 'changecode') { if (confirm('Change the pairing code? Your weddings stay on this phone.')) { CODE = null; del('code'); render(false); } return; }
     if (act === 'wipe') { if (confirm('Remove all weddings, checkmarks and notes from this phone? Your main app keeps everything.')) { WEDS = []; ST = {}; MADE = ''; UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' }; saveUI(); Promise.all([del('weddings'), del('state'), del('made')]).then(function () { render(false); toast('Removed from this phone'); }); } return; }
+    if (act === 'sync') { syncNow(); return; }
     if (act === 'addphoto') { addPhoto(); return; }
     if (act === 'notify') { try { Notification.requestPermission().then(function () { render(true); }); } catch (x) {} return; }
     if (act === 'prepclear' && S) { if (confirm('Uncheck the packing and day-before lists for this wedding?')) { S.gear = {}; S.prep = {}; saveST(); render(true); } return; }
