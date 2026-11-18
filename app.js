@@ -54,7 +54,7 @@
 
 
   /* ---------- state ---------- */
-  var VERSION = 10, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
+  var VERSION = 11, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
   var UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' };
   try { var u0 = JSON.parse(localStorage.getItem('gabi-day-ui') || 'null'); if (u0) { for (var k0 in u0) UI[k0] = u0[k0]; } } catch (e) {}
   if (['home', 'weddings', 'sync', 'settings', 'wedding'].indexOf(UI.view) < 0) UI.view = 'home';
@@ -448,15 +448,17 @@
   function applyWeddingsText(t) {
     return unlock(t, CODE).then(function (r) {
       if (r.kind !== 'weddings' || !Array.isArray(r.data.weddings)) throw new Error('That file is not a weddings file from your main app.');
-      var got = r.data.weddings, ids = got.map(function (x) { return x.id; });
+      var got = r.data.weddings, ids = got.map(function (x) { return x.id; }), PX = r.data.pics || null;
+      if (PX) got.forEach(function (D) { (D.shots || []).forEach(function (x) { x.pics = (x.pics || []).map(function (k) { return k.charAt(0) === '#' ? (PX[k] || '') : k; }).filter(Boolean); }); });
       WEDS = WEDS.filter(function (x) { return ids.indexOf(x.id) < 0; }).concat(got); MADE = r.data.made || '';
       return Promise.all([put('weddings', WEDS), put('made', MADE)]).then(function () { return got.length; });
     });
   }
   function loadWeddings() {
-    pickFile().then(function (f) {
-      if (!f) return;
-      return f.text().then(applyWeddingsText).then(function (n) { render(false); toast('✓ ' + n + ' wedding' + (n === 1 ? '' : 's') + ' saved on this phone'); });
+    var inp = document.getElementById('file'); inp.value = ''; inp.multiple = true;
+    new Promise(function (res) { inp.onchange = function () { inp.multiple = false; res([].slice.call(inp.files || [])); }; inp.click(); }).then(function (fs) {
+      if (!fs.length) return;
+      var n = 0; return fs.reduce(function (pr, f) { return pr.then(function () { return f.text().then(applyWeddingsText).then(function (k) { n += k; }); }); }, Promise.resolve()).then(function () { render(false); toast('\u2713 ' + n + ' wedding' + (n === 1 ? '' : 's') + ' saved on this phone'); });
     }).catch(function (err) { toast(err && err.message ? err.message : 'Could not open that file.'); });
   }
   function sendBack() {
@@ -518,17 +520,22 @@
       });
   }
   var API = 'https://www.googleapis.com/drive/v3/files';
+  function listFiles(q) { return gfetch(API + '?q=' + encodeURIComponent(q + ' and trashed = false') + '&orderBy=modifiedTime%20desc&pageSize=50&spaces=drive&fields=files(id,name,modifiedTime)').then(function (r) { return r.json(); }).then(function (j) { return j.files || []; }); }
   function findFile(q) { return gfetch(API + '?q=' + encodeURIComponent(q + ' and trashed = false') + '&orderBy=modifiedTime%20desc&pageSize=1&spaces=drive&fields=files(id,name,modifiedTime)').then(function (r) { return r.json(); }).then(function (j) { return (j.files || [])[0] || null; }); }
   function syncNow() {
     if (SYNCING) return;
     if (!navigator.onLine) { toast('No signal right now. Sync when you have service.'); return; }
     SYNCING = true; render(true);
     var got = 0, sent = false;
-    token().then(function () { return findFile("name contains 'Gabi Wedding Day - to phone'"); }).then(function (f) {
-      if (!f) return;
+    token().then(function () { return listFiles("name contains 'Gabi Wedding Day - to phone'"); }).then(function (fs) {
+      if (!fs.length) return;
+      var bOf = function (f) { var m = / - ([a-z0-9]+) - (\d+) of (\d+)\.txt$/.exec(f.name); return m ? { b: m[1], i: +m[2], n: +m[3] } : { b: f.id, i: 1, n: 1 }; };
+      var top = bOf(fs[0]), parts = fs.filter(function (f) { return bOf(f).b === top.b; }).sort(function (a, b) { return bOf(a).i - bOf(b).i; });
       var seen = null; try { seen = localStorage.getItem('gabi-day-lastin'); } catch (x) {}
-      if (seen === f.id + '@' + f.modifiedTime) return;
-      return gfetch(API + '/' + f.id + '?alt=media').then(function (r) { return r.text(); }).then(applyWeddingsText).then(function (n) { got = n; try { localStorage.setItem('gabi-day-lastin', f.id + '@' + f.modifiedTime); } catch (x) {} });
+      if (seen === top.b + '@' + fs[0].modifiedTime) return;
+      if (parts.length < top.n) throw new Error('Your main app is still sending (' + parts.length + ' of ' + top.n + '). Wait a minute and tap Sync again.');
+      return parts.reduce(function (pr, f) { return pr.then(function () { return gfetch(API + '/' + f.id + '?alt=media').then(function (r) { return r.text(); }).then(applyWeddingsText).then(function (n) { got += n; }); }); }, Promise.resolve())
+        .then(function () { try { localStorage.setItem('gabi-day-lastin', top.b + '@' + fs[0].modifiedTime); } catch (x) {} });
     }).then(buildResults).then(function (text) {
       if (!text) return;
       return findFile("name = 'Gabi Wedding Day - from phone.txt'").then(function (f) {
