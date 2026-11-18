@@ -52,11 +52,15 @@
       function () { throw new Error('This file was locked with a different pairing code. Check the code in your main app.'); });
   }
 
+
   /* ---------- state ---------- */
-  var EDIT = false, CODE = null, WEDS = [], MADE = '', ST = {}, UI = { view: 'home', wid: null, tab: 'now' };
-  try { var u0 = JSON.parse(localStorage.getItem('gabi-day-ui') || 'null'); if (u0) UI = u0; } catch (e) {}
+  var VERSION = 5, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
+  var UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' };
+  try { var u0 = JSON.parse(localStorage.getItem('gabi-day-ui') || 'null'); if (u0) { for (var k0 in u0) UI[k0] = u0[k0]; } } catch (e) {}
+  if (['home', 'weddings', 'sync', 'settings', 'wedding'].indexOf(UI.view) < 0) UI.view = 'home';
+  if (['overview', 'now', 'fam', 'shots', 'where', 'contacts', 'notes'].indexOf(UI.tab) < 0) UI.tab = 'overview';
   function saveUI() { try { localStorage.setItem('gabi-day-ui', JSON.stringify(UI)); } catch (e) {} }
-  function stOf(wid) { if (!ST[wid]) ST[wid] = { done: {}, fam: {}, open: {}, notes: '', filter: 'all', y: {} }; return ST[wid]; }
+  function stOf(wid) { var s = ST[wid]; if (!s) s = ST[wid] = {}; ['done', 'fam', 'later', 'open', 'y'].forEach(function (k) { if (!s[k]) s[k] = {}; }); if (s.notes == null) s.notes = ''; if (!s.filter) s.filter = 'all'; return s; }
   var saveT = null;
   function saveST() { clearTimeout(saveT); saveT = setTimeout(function () { put('state', ST); }, 150); }
 
@@ -65,140 +69,248 @@
   function dayIso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
   function weddingDay() { var d = new Date(); if (d.getHours() < 6) d.setDate(d.getDate() - 1); return dayIso(d); }
   function isToday(D) { return D.date === weddingDay(); }
+  function daysTo(iso) { var a = new Date(weddingDay() + 'T12:00:00'), b = new Date(iso + 'T12:00:00'); return Math.round((b - a) / 86400000); }
   function nowMin(D) { var d = new Date(), m = d.getHours() * 60 + d.getMinutes(), t = D.tl; if (!t.length) return m; var mid = (t[0].s + t[t.length - 1].s) / 2; while (m < mid - 720) m += 1440; while (m > mid + 720) m -= 1440; return m; }
   function cur() { for (var i = 0; i < WEDS.length; i++) if (WEDS[i].id === UI.wid) return WEDS[i]; return null; }
-  function toast(t) { var d = document.createElement('div'); d.className = 'toast'; d.setAttribute('role', 'status'); d.textContent = t; document.body.appendChild(d); setTimeout(function () { d.remove(); }, 2400); }
-
-  /* ---------- screens ---------- */
-  var TABS = [['now', 'Timeline'], ['where', '📍 Places'], ['fam', 'Family'], ['shots', 'Shots'], ['contacts', 'Contacts'], ['notes', 'Notes']];
+  function toast(t) { [].forEach.call(document.querySelectorAll('.toast'), function (x) { x.remove(); }); var d = document.createElement('div'); d.className = 'toast'; d.setAttribute('role', 'status'); d.textContent = t; document.body.appendChild(d); setTimeout(function () { d.remove(); }, 2600); }
   function clockNow() { var d = new Date(); return f12(d.getHours() * 60 + d.getMinutes()); }
+  function sorted() { return WEDS.slice().sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; }); }
+  function people(D) { var seen = {}; D.fam.forEach(function (x) { (x.names || []).forEach(function (n) { seen[String(n).toLowerCase()] = 1; }); }); return Object.keys(seen).length; }
+  function shortDate(D) { try { return new Date(D.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' }); } catch (x) { return D.dateLabel; } }
 
-  function header() {
-    var h = document.getElementById('hd'), D = cur();
+  /* ---------- icons (simple line drawings) ---------- */
+  var IC = {
+    back: '<path d="M15 5l-7 7 7 7"/>',
+    home: '<path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/><path d="M10 20v-6h4v6"/>',
+    rings: '<circle cx="9" cy="14" r="5"/><circle cx="15" cy="14" r="5"/><path d="M13 5l2-2 2 2-2 2z"/>',
+    sync: '<path d="M4 12a8 8 0 0 1 14-5.3L20 9"/><path d="M20 4v5h-5"/><path d="M20 12a8 8 0 0 1-14 5.3L4 15"/><path d="M4 20v-5h5"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+    brief: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h3M13 13h3M8 17h3"/>',
+    clock: '<rect x="3" y="5" width="15" height="15" rx="2"/><path d="M3 10h15M8 3v4M13 3v4"/><circle cx="18" cy="17" r="4.5" fill="var(--bg)"/><path d="M18 15v2.2l1.4 1"/>',
+    camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+    list: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9z"/><path d="M8.5 12l1.5 1.5 2.5-3M14 12h2M8.5 17h7"/>',
+    more: '<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
+    cal: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
+    pin: '<path d="M12 21s-6-6.1-6-11a6 6 0 0 1 12 0c0 4.9-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/>',
+    cloud: '<path d="M7 18h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.4 1.5A3.3 3.3 0 0 0 7 18z"/>',
+    sun: '<circle cx="12" cy="15" r="4"/><path d="M12 6v2M5 15H3M21 15h-2M6.3 9.3l1.4 1.4M17.7 9.3l-1.4 1.4M3 20h18"/>',
+    people: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.3A5 5 0 0 1 21 19"/>',
+    phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
+    note: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h7"/>',
+    spark: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
+    close: '<path d="M6 6l12 12M18 6L6 18"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>'
+  };
+  function svg(n) { return '<svg viewBox="0 0 24 24" aria-hidden="true">' + (IC[n] || '') + '</svg>'; }
+
+  /* ---------- top bar and bottom tabs ---------- */
+  var HOME_TABS = [['home', 'Home', 'home'], ['weddings', 'Weddings', 'rings'], ['sync', 'Sync', 'sync'], ['settings', 'Settings', 'gear']];
+  var WED_TABS = [['overview', 'Overview', 'brief'], ['now', 'Timeline', 'clock'], ['fam', 'Family', 'camera'], ['shots', 'Shot list', 'list'], ['more', 'More', 'more']];
+  function bars() {
+    var hd = document.getElementById('hd'), tb = document.getElementById('tb'), D = cur();
+    if (!CODE) { hd.innerHTML = '<div class="bar"><span class="ttl">Wedding Day</span></div>'; tb.innerHTML = ''; return; }
     if (UI.view === 'wedding' && D) {
-      h.innerHTML = '<div class="top"><button class="back" data-go="home">‹ Weddings</button><span class="clock" id="clock">' + clockNow() + '</span></div>' +
-        '<div class="top"><h1>' + e(D.couple) + '</h1></div><p class="sub">' + e([D.dateLabel, D.coverage, D.venue].filter(Boolean).join(' · ')) + '</p>' +
-        '<nav>' + TABS.map(function (t) { return '<button type="button" data-tab="' + t[0] + '"' + (UI.tab === t[0] ? ' aria-current="page"' : '') + '>' + t[1] + '</button>'; }).join('') + '</nav>';
+      var title = UI.group ? D.couple : ({ overview: 'Wedding brief', now: D.couple, fam: D.couple, shots: D.couple, where: 'Places', contacts: 'Contacts', notes: 'Notes' }[UI.tab] || D.couple);
+      hd.innerHTML = '<div class="bar"><button class="ib" data-back="1" aria-label="Back">' + svg('back') + '</button><span class="ttl">' + e(title) + '</span>' + (isToday(D) ? '<span class="clock" id="clock">' + clockNow() + '</span>' : '') + '<button class="ib" data-sheet="1" aria-label="More">' + svg('more') + '</button></div>';
+      var t = ['where', 'contacts', 'notes'].indexOf(UI.tab) >= 0 ? 'more' : UI.tab;
+      tb.innerHTML = WED_TABS.map(function (x) { return '<button class="tab" data-wtab="' + x[0] + '"' + (t === x[0] ? ' aria-current="page"' : '') + '><span class="ti">' + svg(x[2]) + '</span>' + x[1] + '</button>'; }).join('');
     } else {
-      h.innerHTML = '<div class="top"><h1>Wedding Day</h1><span class="clock" id="clock">' + clockNow() + '</span></div><p class="sub">Gabi Vacc Photography · works with no signal</p>';
+      var name = { home: 'Home', weddings: 'Weddings', sync: 'Sync with main app', settings: 'Settings' }[UI.view] || 'Home';
+      hd.innerHTML = '<div class="bar"><span class="ttl" style="padding-left:6px">' + name + '</span><span class="clock" id="clock">' + clockNow() + '</span></div>';
+      tb.innerHTML = HOME_TABS.map(function (x) { return '<button class="tab" data-view="' + x[0] + '"' + (UI.view === x[0] ? ' aria-current="page"' : '') + '><span class="ti">' + svg(x[2]) + '</span>' + x[1] + '</button>'; }).join('');
     }
   }
 
+  /* ---------- home level screens ---------- */
   function vSetup() {
-    return '<div class="card"><h2 style="margin-top:0">Welcome! Pair this phone once</h2>' +
-      '<p class="hint">In your main app inside Claude, go to <b>Settings → Day-of app</b> and copy your pairing code. Paste it here. It locks your wedding files so only your app can open them.</p>' +
+    return '<h1 class="hello">Welcome!</h1><p class="sub">Pair this phone once with your main app.</p>' +
+      '<div class="card"><p class="hint" style="margin-top:0">In your main app inside Claude, open <b>Weddings → 📲 Day-of phone app</b>, tap <b>Copy</b> next to your pairing code, and paste it here. It locks your wedding files so only you can open them.</p>' +
       '<input type="text" id="code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX">' +
-      '<div class="btns"><button class="btn ok full" data-act="savecode">Save pairing code</button></div></div>' +
-      installHint();
+      '<div class="btns"><button class="btn dark" data-act="savecode">Save pairing code</button></div></div>' + installHint();
   }
-
   function installHint() {
     var standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
     if (standalone) return '';
     var ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
-    return '<div class="card"><b>Add it to your home screen</b><p class="hint" style="margin:6px 0 0">' +
-      (ios ? 'In Safari, tap the Share button, then <b>Add to Home Screen</b>.' : 'In Chrome, tap the ⋮ menu, then <b>Install app</b> or <b>Add to Home screen</b>.') +
-      ' Then open it from the icon. It opens with no signal and stays where you left it.</p></div>';
+    return '<div class="card tint"><b>Add it to your home screen</b><p class="hint" style="margin:6px 0 0">' +
+      (ios ? 'In Safari, tap the Share button, then <b>Add to Home Screen</b>.' : 'In Chrome, tap the ⋮ menu, then <b>Install app</b>.') +
+      ' Always open it from the icon: it opens with no signal and stays where you left it.</p></div>';
   }
-
+  function hello() { var h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; }
+  function wedRow(D, withEdit) {
+    var s = stOf(D.id), n = D.shots.filter(function (x) { return s.done[x.id]; }).length + D.fam.filter(function (x) { return s.fam[x.id]; }).length, d = daysTo(D.date);
+    var when = d === 0 ? 'Today' : d === 1 ? 'Tomorrow' : d > 1 ? 'In ' + d + ' days' : '';
+    return '<div class="li" style="padding:0"><button class="li" data-wid="' + e(D.id) + '" style="border:0;flex:1"><span class="ico">' + svg('rings') + '</span><span class="t"><b>' + e(D.couple) + (d === 0 ? '<span class="badge">Today</span>' : '') + '</b><small>' + e(shortDate(D)) + (when && d !== 0 ? ' · ' + when : '') + (n ? ' · ' + n + ' checked' : '') + '</small></span>' + (withEdit ? '' : '<span class="chev">›</span>') + '</button>' +
+      (withEdit ? '<button class="btn dg" data-rm="' + e(D.id) + '" style="width:auto;min-height:40px;margin-right:12px;font-size:15px">Remove</button>' : '') + '</div>';
+  }
   function vHome() {
-    var h = '', list = WEDS.slice().sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
-    var today = weddingDay();
-    if (!list.length) h += '<div class="card"><b>No weddings on this phone yet</b><p class="hint" style="margin:6px 0 0">In your main app, tap <b>📲 Send to my Day-of app</b>. Save the file, then tap <b>Load weddings</b> below and pick it.</p></div>';
-    var up = list.filter(function (D) { return D.date >= today; }), past = list.filter(function (D) { return D.date < today; }).reverse();
-    function card(D) {
-      var s = stOf(D.id), n = Object.keys(s.done).filter(function (k) { return s.done[k] && k.charAt(0) !== 't'; }).length + Object.keys(s.fam).filter(function (k) { return s.fam[k]; }).length;
-      return '<div style="position:relative"><button class="card wed" data-wid="' + e(D.id) + '" style="' + (EDIT ? 'padding-right:84px' : '') + '"><b>' + e(D.couple) + '</b>' + (D.date === today ? '<span class="badge">Today</span>' : '') +
-        '<div class="hint">' + e(D.dateLabel) + (D.venue ? ' \u00b7 ' + e(D.venue) : '') + '</div>' +
-        '<div class="hint">' + D.shots.length + ' shots \u00b7 ' + D.fam.length + ' family groups' + (n ? ' \u00b7 ' + n + ' checked' : '') + '</div></button>' +
-        (EDIT ? '<button class="btn dg" data-rm="' + e(D.id) + '" style="position:absolute;right:10px;top:12px;min-height:38px;padding:0 10px;font-size:14px">Remove</button>' : '') + '</div>';
+    var list = sorted(), today = weddingDay(), up = list.filter(function (D) { return D.date >= today; }), next = up[0];
+    var h = '<div style="display:flex;align-items:center;gap:12px"><div style="flex:1"><h1 class="hello">' + hello() + ', Gabi.</h1><div class="sub">' + new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) + '</div></div><div class="av">G</div></div>';
+    h += '<div style="height:18px"></div>';
+    if (next) {
+      var d = daysTo(next.date);
+      h += '<div class="card"><div class="sub" style="margin-bottom:4px">' + (d === 0 ? 'Today’s wedding' : 'Next wedding · ' + (d === 1 ? 'tomorrow' : 'in ' + d + ' days')) + '</div><div style="font-size:24px;font-weight:700">' + e(next.couple) + '</div>' +
+        '<div class="meta">' + svg('cal') + e(shortDate(next)) + '</div>' + (next.venue ? '<div class="meta">' + svg('pin') + e(next.venue) + '</div>' : '') +
+        '<div class="btns"><button class="btn dark" data-wid="' + e(next.id) + '">Open wedding</button></div></div>';
+    } else {
+      h += '<div class="card"><p class="sub" style="margin-top:0;font-size:17px">Load your next wedding when you’re ready.</p><div class="btns"><button class="btn dark" data-act="load">Load weddings</button></div></div>';
     }
-    if (list.length) h += '<div style="display:flex;justify-content:flex-end;margin:-4px 0 6px"><button class="back" data-act="edit" style="padding:6px 0">' + (EDIT ? 'Done' : 'Edit') + '</button></div>';
-    up.forEach(function (D) { h += card(D); });
-    if (past.length) h += '<h2>Past weddings</h2>' + past.map(card).join('');
-    h += '<div class="btns"><button class="btn ok full" data-act="load">Load weddings from my main app</button></div>';
-    if (MADE) h += '<p class="hint">Last loaded: weddings sent ' + e(MADE) + '.</p>';
-    if (list.length) h += '<div class="btns"><button class="btn full" data-act="sendback">Send checkmarks & notes back to my main app</button></div>';
-    h += installHint();
-    h += '<details class="card" style="margin-top:16px"><summary><b>Settings</b></summary>' +
-      '<p class="hint">Everything is stored only on this phone. App version 4.</p>' +
-      '<div class="btns"><button class="btn" data-act="changecode">Change pairing code</button><button class="btn dg" data-act="wipe">Remove all weddings from this phone</button></div></details>';
+    var locs = [];
+    up.slice(0, 6).forEach(function (D) { (D.stops || []).forEach(function (x) { if (x.addr && locs.length < 8) locs.push({ addr: x.addr, name: x.name, couple: D.couple }); }); });
+    if (locs.length) {
+      h += '<div class="h2"><span class="ico" style="width:auto;height:auto">' + svg('pin') + '</span>Wedding locations</div><div class="list">' +
+        locs.map(function (x) { return '<a class="li" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(x.addr) + '"><span class="ico" style="color:var(--icon)">' + svg('pin') + '</span><span class="t"><b>' + e(x.addr.split(',')[0]) + '</b><small>' + e(x.name) + ' · ' + e(x.couple) + '</small></span><span class="chev">›</span></a>'; }).join('') + '</div>';
+    }
+    h += '<div class="h2">More weddings<button class="lk" data-view="weddings">All weddings ›</button></div>';
+    var more = up.slice(next ? 1 : 0, 4);
+    h += more.length ? '<div class="list">' + more.map(function (D) { return wedRow(D, false); }).join('') + '</div>' : '<p class="sub">No other upcoming weddings yet.</p>';
+    var mo = today.slice(0, 7), thisMonth = up.filter(function (D) { return D.date.slice(0, 7) === mo; }).length;
+    h += '<div class="stat"><div><b>' + up.length + '</b><small>Upcoming</small></div><div><b>' + thisMonth + '</b><small>This month</small></div></div>';
+    h += '<button class="btn" data-act="load" style="justify-content:space-between;background:var(--tint);border-color:transparent"><span>+ &nbsp;Load weddings from my main app</span><span>→</span></button>';
+    return h + installHint();
+  }
+  function vWeddings() {
+    var list = sorted(), today = weddingDay(), up = list.filter(function (D) { return D.date >= today; }), past = list.filter(function (D) { return D.date < today; }).reverse();
+    var h = '<div style="display:flex;align-items:center"><h1 class="hello" style="flex:1">Weddings</h1>' + (list.length ? '<button class="btn link" data-act="edit" style="width:auto">' + (EDIT ? 'Done' : 'Edit') + '</button>' : '') + '</div>';
+    if (!list.length) return h + '<p class="sub">No weddings on this phone yet.</p><div class="btns"><button class="btn dark" data-act="load">Load weddings</button></div>';
+    h += '<div class="h2" style="margin-top:14px">Upcoming</div>' + (up.length ? '<div class="list">' + up.map(function (D) { return wedRow(D, EDIT); }).join('') + '</div>' : '<p class="sub">None.</p>');
+    if (past.length) h += '<div class="h2">Past</div><div class="list">' + past.map(function (D) { return wedRow(D, EDIT); }).join('') + '</div>';
     return h;
   }
+  function vSync() {
+    return '<h1 class="hello">Sync</h1><p class="sub">Move weddings and checkmarks between this phone and your main app.</p>' +
+      '<div class="card"><b>1. Get weddings</b><p class="hint">In your main app tap <b>📲 Send to my Day-of app</b>, then tap below and pick the file.</p><button class="btn dark" data-act="load">Load weddings</button>' + (MADE ? '<p class="hint" style="margin-bottom:0">Last file: sent ' + e(MADE) + '.</p>' : '') + '</div>' +
+      '<div class="card"><b>2. After the wedding</b><p class="hint">Send your checkmarks and notes back. In your main app tap <b>Load Day-of app results</b> and pick the file.</p><button class="btn" data-act="sendback">Send checkmarks & notes back</button></div>';
+  }
+  function vSettings() {
+    return '<h1 class="hello">Settings</h1><div class="list" style="margin-top:14px">' +
+      ('wakeLock' in navigator ? '<button class="li" data-act="wake"><span class="ico">' + svg('sun') + '</span><span class="t"><b>Keep screen on</b><small>' + (WL ? 'On while the app is open' : 'Off') + '</small></span></button>' : '') +
+      '<button class="li" data-act="changecode"><span class="ico">' + svg('gear') + '</span><span class="t"><b>Change pairing code</b><small>Your weddings stay on this phone</small></span></button>' +
+      '<button class="li" data-act="wipe"><span class="ico" style="color:var(--warn)">' + svg('close') + '</span><span class="t"><b style="color:var(--warn)">Remove all weddings from this phone</b><small>Your main app keeps everything</small></span></button></div>' +
+      '<p class="hint">Everything is stored only on this phone. App version ' + VERSION + '.</p>' + installHint();
+  }
 
+  /* ---------- wedding screens ---------- */
   function curIdx(D) { if (!isToday(D)) return -1; var m = nowMin(D), c = -1; D.tl.forEach(function (b, i) { if (m >= b.s && m < b.s + Math.max(b.d, 1)) c = i; }); if (c < 0) D.tl.forEach(function (b, i) { if (c < 0 && b.s > m) c = i; }); return c; }
-
-  function vTimeline(D, S) {
-    var c = curIdx(D), h = '';
-    if (!isToday(D)) h += '<p class="hint">Planned times. On the wedding day the current moment is highlighted.</p>';
-    else if (c >= 0) { var b = D.tl[c]; h += '<div class="card"><span class="k">Now / next</span><b style="display:block;font-size:18px;margin-top:2px">' + e(b.label) + '</b><span class="hint">' + f12(b.s) + ' to ' + f12(b.s + b.d) + (D.tl[c + 1] ? ' · then ' + e(D.tl[c + 1].label) + ' at ' + f12(D.tl[c + 1].s) : '') + '</span>' + (b.note ? '<p class="hint" style="margin:6px 0 0">' + e(b.note) + '</p>' : '') + '</div>'; }
-    h += D.tl.map(function (b, i) {
-      var dn = !!S.done['t' + i];
-      return '<div class="row' + (dn ? ' done' : '') + (i === c ? ' now' : '') + '"><button type="button" class="chk" data-t="t' + i + '" aria-label="Mark done">' + (dn ? '✓' : '') + '</button><span class="time">' + f12(b.s) + '</span><button type="button" class="tx" data-open="t' + i + '"><b>' + e(b.label) + (b.cer ? ' ♥' : '') + '</b>' + (S.open['t' + i] && b.note ? '<small>' + e(b.note) + '</small>' : (b.note ? '<small>Tap for notes</small>' : '')) + '</button></div>';
-    }).join('');
+  function vOverview(D, S) {
+    var h = '<h1 class="big">' + e(D.couple) + '</h1><div class="meta">' + svg('cal') + e(shortDate(D)) + '</div>' + (D.venue || (D.stops[0] && D.stops[0].addr) ? '<div class="meta">' + svg('pin') + e(D.venue || D.stops[0].addr.split(',')[0]) + '</div>' : '');
+    var place = (D.stops.filter(function (x) { return x.addr; })[0] || {}).addr || D.venue || '';
+    h += '<div class="two"><a target="_blank" rel="noopener" href="https://www.google.com/search?q=' + encodeURIComponent('weather ' + place + ' ' + D.dateLabel) + '"><span class="ico">' + svg('cloud') + '</span><span><b>Weather</b><small>View forecast</small></span></a>' +
+      '<div><span class="ico">' + svg('sun') + '</span><span><b>' + (D.sunset != null ? f12(D.sunset - 60) : '—') + '</b><small>Golden hour' + (D.sunset != null ? ' · sunset ' + f12(D.sunset) : '') + '</small></span></div></div>';
+    var c = curIdx(D), start = c >= 0 ? c : 0, g = D.tl.slice(start, start + 3);
+    h += '<div class="card tint"><div style="display:flex;align-items:center;gap:12px"><span class="ico">' + svg('clock') + '</span><div style="flex:1"><div style="font-size:22px;font-weight:700">Timeline</div><div class="sub">' + D.tl.length + ' moments planned</div></div><button class="btn link" data-wtab="now" style="width:auto;color:var(--ink)">View →</button></div>' +
+      (g.length ? '<div style="border-top:1px solid var(--line);margin:14px 0 0;padding-top:12px" class="sub">' + (c >= 0 ? 'Now and next' : 'Day at a glance') + '</div><div class="glance">' + g.map(function (b) { return '<span class="tm">' + f12(b.s) + '</span><span class="dot"></span><span class="lb">' + e(b.label) + '</span>'; }).join('') + '</div>' : '') + '</div>';
+    var famDone = D.fam.filter(function (x) { return S.fam[x.id]; }).length, shotDone = D.shots.filter(function (x) { return S.done[x.id]; }).length, notes = String(S.notes || '').split('\n').filter(function (x) { return x.trim(); }).length;
+    h += '<div class="h2">Wedding details</div><div class="grid">' +
+      '<button data-wtab="fam"><span class="ico">' + svg('people') + '</span><span><b>Family photos</b><small>' + famDone + ' of ' + D.fam.length + ' groups · ' + people(D) + ' people</small></span></button>' +
+      '<button data-wtab="shots"><span class="ico">' + svg('list') + '</span><span><b>Shot list</b><small>' + shotDone + ' of ' + D.shots.length + ' captured</small></span></button>' +
+      '<button data-page="contacts"><span class="ico">' + svg('phone') + '</span><span><b>Contacts</b><small>' + D.contacts.length + ' contact' + (D.contacts.length === 1 ? '' : 's') + '</small></span></button>' +
+      '<button data-page="notes"><span class="ico">' + svg('note') + '</span><span><b>Notes</b><small>' + notes + ' note' + (notes === 1 ? '' : 's') + '</small></span></button></div>';
+    if (D.stops.length) h += '<div class="h2">Locations</div>' + locList(D);
     return h;
+  }
+  function locList(D) {
+    return '<div class="list">' + D.stops.map(function (x, i) {
+      var inner = '<span class="ico" style="color:var(--icon)">' + svg('pin') + '</span><span class="t"><b>' + e(x.addr ? x.addr.split(',')[0] : x.name) + '</b><small>' + e(x.name) + ' · be there by ' + f12(x.start) + (i < D.stops.length - 1 && x.drive ? ' · leave ' + f12(x.leave) : '') + '</small></span><span class="chev">›</span>';
+      return x.addr ? '<a class="li" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(x.addr) + '">' + inner + '</a>' : '<div class="li">' + inner + '</div>';
+    }).join('') + '</div>';
   }
   function vWhere(D) {
-    if (!D.stops.length) return '<p class="hint">No places yet.</p>';
-    return D.stops.map(function (x, i) {
+    if (!D.stops.length) return '<p class="sub">No places yet.</p>';
+    return '<h1 class="hello">Where to be & when</h1><div style="height:12px"></div>' + D.stops.map(function (x, i) {
       var prev = i ? D.stops[i - 1].addr : '';
       return '<div class="card"><div style="display:flex;justify-content:space-between;gap:8px"><b>' + (i + 1) + '. ' + e(x.name) + '</b><b>' + f12(x.start) + '</b></div><div style="margin:4px 0">' + (x.addr ? e(x.addr) : '<span class="hint">No address</span>') + '</div><div class="hint">Be there by <b>' + f12(x.start) + '</b> for ' + e(x.first) + ' · until ' + f12(x.end) + (i < D.stops.length - 1 && x.drive ? ' · leave ' + f12(x.leave) + ' (' + x.drive + ' min drive)' : '') + '</div>' +
-        (x.addr ? '<div class="btns"><a class="btn ok" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(x.addr) + '">Open in Maps</a>' + (prev ? '<a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&origin=' + encodeURIComponent(prev) + '&destination=' + encodeURIComponent(x.addr) + '&travelmode=driving">Directions</a>' : '') + '</div>' : '') + '</div>';
+        (x.addr ? '<div class="row2" style="margin-top:12px"><a class="btn dark" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(x.addr) + '">Open in Maps</a>' + (prev ? '<a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&origin=' + encodeURIComponent(prev) + '&destination=' + encodeURIComponent(x.addr) + '&travelmode=driving">Directions</a>' : '') + '</div>' : '') + '</div>';
     }).join('');
   }
+  function vTimeline(D, S) {
+    var c = curIdx(D), h = '<h1 class="hello">Timeline</h1><p class="sub">' + (isToday(D) ? 'The current moment is highlighted.' : 'Planned times. On the wedding day the current moment is highlighted.') + '</p>';
+    h += '<div class="list">' + D.tl.map(function (b, i) {
+      var dn = !!S.done['t' + i], op = !!S.open['t' + i];
+      return '<div class="li' + (dn ? ' done' : '') + (i === c ? ' now' : '') + '"><button class="num" data-t="t' + i + '" aria-label="Mark done">' + (dn ? svg('check') : '') + '</button><button class="t" data-open="t' + i + '" style="border:0;background:none;text-align:left;padding:0"><small style="color:var(--mute)">' + f12(b.s) + ' – ' + f12(b.s + b.d) + '</small><b class="' + (op ? '' : '') + '" style="white-space:normal">' + e(b.label) + (b.cer ? ' ♥' : '') + '</b>' + (b.note ? (op ? '<small style="white-space:normal;color:var(--ink)">' + e(b.note) + '</small>' : '<small>Tap for notes</small>') : '') + '</button></div>';
+    }).join('') + '</div>';
+    return h;
+  }
+  function famState(S, x) { return S.fam[x.id] ? 'done' : S.later[x.id] ? 'later' : 'todo'; }
   function vFam(D, S) {
-    if (!D.fam.length) return '<p class="hint">No family photos on this list.</p>';
-    var nxt = -1; D.fam.forEach(function (x, i) { if (nxt < 0 && !S.fam[x.id]) nxt = i; });
-    var h = '';
-    if (nxt >= 0) { var x = D.fam[nxt]; h += '<div class="card" style="border-color:var(--brass)"><span class="k">Calling now · ' + (nxt + 1) + ' of ' + D.fam.length + '</span><b style="display:block;font-size:18px;margin-top:2px">' + e(x.text) + '</b>' + (x.who ? '<p style="margin:4px 0">' + e(x.who) + '</p>' : '') + (x.rel ? '<p class="hint" style="margin:4px 0">↳ ' + e(x.rel) + '</p>' : '') + '<div class="btns"><button type="button" class="btn ok" data-f="' + e(x.id) + '">✓ Done, next group</button></div></div>'; }
-    else h += '<div class="card"><b>All family photos are done.</b><p class="hint" style="margin:4px 0 0">Thank everyone and send them to cocktail hour.</p></div>';
-    h += D.fam.map(function (x, i) { var dn = !!S.fam[x.id]; return '<div class="row' + (dn ? ' done' : '') + '"><button type="button" class="chk" data-f="' + e(x.id) + '">' + (dn ? '✓' : (i + 1)) + '</button><div class="tx"><b>' + e(x.text) + '</b>' + (x.who ? '<small>' + e(x.who) + '</small>' : '') + '</div></div>'; }).join('');
+    if (!D.fam.length) return '<h1 class="hello">Family photos</h1><p class="sub">No family photos on this list.</p>';
+    if (UI.group) { var g = D.fam.filter(function (x) { return x.id === UI.group; })[0]; if (g) return vGroup(D, S, g); UI.group = null; }
+    var segs = { todo: [], later: [], done: [] }; D.fam.forEach(function (x, i) { segs[famState(S, x)].push({ x: x, i: i }); });
+    var seg = UI.famSeg || 'todo', L = segs[seg];
+    var h = '<h1 class="hello">Family photos</h1><p class="sub">' + people(D) + ' people · ' + D.fam.length + ' groups</p>' +
+      '<div class="seg">' + [['todo', 'To photograph'], ['later', 'Later'], ['done', 'Done']].map(function (s) { return '<button data-seg="' + s[0] + '"' + (seg === s[0] ? ' aria-current="page"' : '') + '>' + s[1] + '<small>' + segs[s[0]].length + '</small></button>'; }).join('') + '</div>';
+    if (!L.length) return h + '<p class="sub" style="margin-top:18px">' + (seg === 'todo' ? 'All family photos are done. Thank everyone and send them to cocktail hour.' : 'Nothing here.') + '</p>';
+    h += '<div>' + L.map(function (o) { var x = o.x, n = (x.names || []).length;
+      return '<button class="li' + (seg === 'done' ? ' done' : '') + '" data-group="' + e(x.id) + '" style="padding:18px 0"><span class="num">' + (seg === 'done' ? svg('check') : (o.i + 1)) + '</span><span class="t wrap"><b>' + e(x.text) + '</b><small>' + (n ? n + ' people' : e(x.who || '')) + '</small></span><span class="chev">›</span></button>'; }).join('') + '</div>';
+    return h;
+  }
+  function vGroup(D, S, g) {
+    var st = famState(S, g), i = D.fam.indexOf(g), names = g.names && g.names.length ? g.names : (g.who ? String(g.who).split(/,\s*|\s+and\s+/) : []);
+    var h = '<button class="btn link" data-group="" style="width:auto;padding:0;min-height:40px;justify-content:flex-start">‹ All groups</button>' +
+      '<div class="sub" style="margin-top:6px">Group ' + (i + 1) + ' of ' + D.fam.length + (st === 'later' ? ' · Later' : st === 'done' ? ' · Done' : '') + '</div><h1 class="big" style="font-size:28px">' + e(g.text) + '</h1>';
+    if (g.rel) h += '<div class="card tint" style="padding:14px"><span class="hint" style="color:var(--ink)">↳ ' + e(g.rel) + '</span></div>';
+    h += names.length ? '<div class="sub" style="margin:4px 0 8px">' + names.length + ' people</div><div class="list">' + names.map(function (n) { return '<div class="li"><span class="t"><b style="font-weight:500">' + e(n) + '</b></span></div>'; }).join('') + '</div>' : '<p class="sub">No names on this group. Add them in your main app’s Family tab and send the wedding again.</p>';
+    h += '<div class="btns">' + (st === 'done' ? '<button class="btn" data-famset="todo">Not photographed yet</button>' : '<button class="btn dark" data-famset="done">' + svg('check').replace('<svg', '<svg style="width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2"') + ' Photographed</button>' + (st === 'later' ? '<button class="btn link" data-famset="todo">Move back to To photograph</button>' : '<button class="btn link" data-famset="later">Come back to this group</button>')) + '</div>';
     return h;
   }
   function shotRow(x, n, S) {
     var dn = !!S.done[x.id], op = !!S.open[x.id], P = x.pics || [];
-    return '<div class="row' + (dn ? ' done' : '') + '"><button type="button" class="chk" data-t="' + e(x.id) + '">' + (dn ? '✓' : n) + '</button><button type="button" class="tx" data-open="' + e(x.id) + '"><b>' + (x.must ? '♥ ' : '') + e(x.text) + '</b>' + (x.say ? '<span class="say">' + e(x.say) + '</span>' : '') +
+    return '<div class="li' + (dn ? ' done' : '') + '" style="align-items:flex-start"><button class="num" data-t="' + e(x.id) + '">' + (dn ? svg('check') : n) + '</button><button class="t" data-open="' + e(x.id) + '" style="border:0;background:none;text-align:left;padding:0"><b style="white-space:normal">' + (x.must ? '♥ ' : '') + e(x.text) + '</b>' + (x.say ? '<span class="say">' + e(x.say) + '</span>' : '') +
       (!op && P.length ? '<span class="thumbs">' + P.slice(0, 3).map(function (p) { return '<img src="' + p + '" alt="">'; }).join('') + '</span>' : '') +
-      (op ? (x.how ? '<small style="color:var(--ink)">' + e(x.how) + '</small>' : '') + '<span class="big">' + P.map(function (p) { return '<img src="' + p + '" alt="Inspiration">'; }).join('') + '</span>' : '') +
-      ((P.length || x.how) ? '<small style="color:var(--brass);font-weight:600">' + (op ? 'Tap to close' : 'Tap for ' + (P.length ? 'photos' : 'how')) + '</small>' : '') + '</button></div>';
+      (op ? (x.how ? '<small style="white-space:normal;color:var(--ink);margin-top:6px">' + e(x.how) + '</small>' : '') + '<span class="bigimg">' + P.map(function (p) { return '<img src="' + p + '" alt="Inspiration">'; }).join('') + '</span>' : '') +
+      ((P.length || x.how) ? '<small style="color:var(--accent);font-weight:600;margin-top:6px">' + (op ? 'Tap to close' : 'Tap for ' + (P.length ? 'photos' : 'how')) + '</small>' : '') + '</button></div>';
   }
   function vShots(D, S) {
     var cats = [], by = {};
     D.shots.forEach(function (x) { if (!by[x.cat]) { by[x.cat] = []; cats.push(x.cat); } by[x.cat].push(x); });
-    var must = D.shots.filter(function (x) { return x.must; }), F = S.filter || 'all';
-    var h = '<div class="chips"><button type="button" data-flt="all" aria-pressed="' + (F === 'all') + '">Everything</button><button type="button" data-flt="must" aria-pressed="' + (F === 'must') + '">♥ Must-haves (' + must.length + ')</button>' + cats.map(function (c) { return '<button type="button" data-flt="' + e(c) + '" aria-pressed="' + (F === c) + '">' + e(c) + '</button>'; }).join('') + '</div>';
-    if (F === 'must') return h + (must.length ? must.map(function (x, i) { return shotRow(x, i + 1, S); }).join('') : '<p class="hint">No must-haves marked.</p>');
-    (F === 'all' ? cats : [F]).forEach(function (c) { if (!by[c]) return; h += '<h2>' + e(c) + '</h2>' + by[c].map(function (x, i) { return shotRow(x, i + 1, S); }).join(''); });
+    var must = D.shots.filter(function (x) { return x.must; }), F = S.filter || 'all', done = D.shots.filter(function (x) { return S.done[x.id]; }).length, pct = D.shots.length ? Math.round(done / D.shots.length * 100) : 0;
+    var h = '<h1 class="hello">Shot list</h1><div class="progress"><span>' + done + ' of ' + D.shots.length + ' captured</span></div><div class="bar2"><i style="width:' + pct + '%"></i></div>' +
+      '<div class="chips"><button data-flt="all" aria-pressed="' + (F === 'all') + '">Everything</button><button data-flt="must" aria-pressed="' + (F === 'must') + '">♥ Must-haves (' + must.length + ')</button>' + cats.map(function (c) { return '<button data-flt="' + e(c) + '" aria-pressed="' + (F === c) + '">' + e(c) + '</button>'; }).join('') + '</div>';
+    if (F === 'must') return h + (must.length ? '<div class="list">' + must.map(function (x, i) { return shotRow(x, i + 1, S); }).join('') + '</div>' : '<p class="sub">No must-haves marked.</p>');
+    (F === 'all' ? cats : [F]).forEach(function (c) { if (!by[c]) return; h += '<div class="h2" style="font-size:18px">' + e(c) + '</div><div class="list">' + by[c].map(function (x, i) { return shotRow(x, i + 1, S); }).join('') + '</div>'; });
     return h;
   }
   function vContacts(D) {
-    return D.contacts.length ? D.contacts.map(function (c) {
+    var h = '<h1 class="hello">Contacts</h1><div style="height:12px"></div>';
+    return h + (D.contacts.length ? D.contacts.map(function (c) {
       var t = String(c.phone || '').replace(/[^\d+]/g, '');
-      return '<div class="card"><span class="k">' + e(c.role) + '</span><b style="display:block">' + e(c.name || c.phone) + '</b>' + (t ? '<div class="btns"><a class="btn ok" href="tel:' + t + '">Call</a><a class="btn" href="sms:' + t + '">Text</a></div>' : '') + '</div>';
-    }).join('') : '<p class="hint">No contacts on this wedding.</p>';
+      return '<div class="card"><div class="sub">' + e(c.role) + '</div><div style="font-size:19px;font-weight:600">' + e(c.name || c.phone) + '</div>' + (t ? '<div class="row2" style="margin-top:12px"><a class="btn dark" href="tel:' + t + '">Call</a><a class="btn" href="sms:' + t + '">Text</a></div>' : '') + '</div>';
+    }).join('') : '<p class="sub">No contacts on this wedding.</p>');
   }
   function vNotes(D, S) {
-    return '<p class="hint">Notes stay on this phone until you tap <b>Send checkmarks & notes back</b> on the Weddings screen.</p><div class="btns" style="margin:0 0 10px">' +
-      ['Running late', 'Someone missing from family photos', 'Need more time for portraits', 'Rain plan in use', 'Great moment to blog'].map(function (t) { return '<button type="button" class="btn" data-q="' + e(t) + '">' + e(t) + '</button>'; }).join('') +
+    return '<h1 class="hello">Notes</h1><p class="sub">They stay on this phone until you send them back from Sync.</p><div class="chips" style="flex-wrap:wrap;overflow:visible">' +
+      ['Running late', 'Someone missing from family photos', 'Need more time for portraits', 'Rain plan in use', 'Great moment to blog'].map(function (t) { return '<button data-q="' + e(t) + '">' + e(t) + '</button>'; }).join('') +
       '</div><textarea id="nt" placeholder="Type a note">' + e(S.notes) + '</textarea>' +
-      '<div class="btns"><button type="button" class="btn" data-act="wake" id="wl"' + ('wakeLock' in navigator ? '' : ' hidden') + '>' + (WL ? 'Screen stays on ✓' : 'Keep screen on') + '</button><button type="button" class="btn" data-act="clear">Clear checkmarks for this wedding</button></div>' +
-      '<p class="hint" style="margin-top:14px">Sent from your main app ' + e(D.made || MADE) + '. If the plan changed, send it again from the main app and load it here. Your checkmarks and notes are kept.</p>';
+      '<div class="btns"><button class="btn" data-act="clear">Clear checkmarks for this wedding</button></div>' +
+      '<p class="hint">Sent from your main app ' + e(D.made || MADE) + '. If the plan changed, send it again from the main app and load it here. Your checkmarks and notes are kept.</p>';
+  }
+  function sheetHtml(D) {
+    var items = [['where', 'pin', 'Places', 'Where to be & when, with Maps'], ['contacts', 'phone', 'Contacts', 'Call or text'], ['notes', 'note', 'Notes', 'Quick notes for later']];
+    return '<div class="sheet" data-sheetbg="1"><div><div style="display:flex;align-items:center;margin-bottom:10px"><h3>Wedding tools</h3><button class="ib" data-sheet="0" aria-label="Close">' + svg('close') + '</button></div><div>' +
+      items.map(function (x) { return '<button class="li" data-page="' + x[0] + '" style="padding:18px 0"><span class="ico">' + svg(x[1]) + '</span><span class="t"><b>' + x[2] + '</b><small>' + x[3] + '</small></span><span class="chev">›</span></button>'; }).join('') +
+      '<button class="li" data-back="home" style="padding:18px 0"><span class="ico">' + svg('home') + '</span><span class="t"><b>Back to Home</b></span><span class="chev">›</span></button></div></div></div>';
   }
 
   function render(keep) {
-    header();
+    bars();
     var m = document.getElementById('m'), y = window.scrollY, D = cur(), h;
     if (!CODE) h = vSetup();
     else if (UI.view === 'wedding' && D) {
       var S = stOf(D.id);
-      h = ({ now: vTimeline, where: vWhere, fam: vFam, shots: vShots, contacts: vContacts, notes: vNotes }[UI.tab] || vTimeline)(D, S);
-    } else { UI.view = 'home'; h = vHome(); }
+      h = ({ overview: vOverview, now: vTimeline, where: vWhere, fam: vFam, shots: vShots, contacts: vContacts, notes: vNotes }[UI.tab] || vOverview)(D, S);
+    } else {
+      if (UI.view === 'wedding') UI.view = 'home';
+      h = ({ home: vHome, weddings: vWeddings, sync: vSync, settings: vSettings }[UI.view] || vHome)();
+    }
     m.innerHTML = h;
+    document.getElementById('sh').innerHTML = SHEET && D && UI.view === 'wedding' ? sheetHtml(D) : '';
     var nt = document.getElementById('nt');
     if (nt) nt.addEventListener('input', function () { stOf(UI.wid).notes = nt.value; saveST(); });
     if (keep) window.scrollTo(0, y);
-    else { var sy = UI.view === 'wedding' && D ? (stOf(D.id).y[UI.tab] || 0) : (UI.homeY || 0); window.scrollTo(0, sy); setTimeout(function () { window.scrollTo(0, sy); }, 60); }
+    else { var key = scrollKey(), sy = (UI.y && UI.y[key]) || 0; window.scrollTo(0, sy); setTimeout(function () { window.scrollTo(0, sy); }, 60); }
   }
+  function scrollKey() { return UI.view === 'wedding' ? UI.wid + ':' + UI.tab + (UI.group ? ':g' : '') : UI.view; }
+  function remember() { UI.y = UI.y || {}; UI.y[scrollKey()] = window.scrollY; }
 
   /* ---------- files in and out ---------- */
   function pickFile() {
@@ -216,7 +328,6 @@
         var got = r.data.weddings, ids = got.map(function (x) { return x.id; });
         WEDS = WEDS.filter(function (x) { return ids.indexOf(x.id) < 0; }).concat(got); MADE = r.data.made || '';
         return Promise.all([put('weddings', WEDS), put('made', MADE)]).then(function () {
-          if (UI.wid && !cur()) { UI.view = 'home'; UI.wid = null; saveUI(); }
           render(false); toast('✓ ' + got.length + ' wedding' + (got.length === 1 ? '' : 's') + ' saved on this phone');
         });
       });
@@ -247,6 +358,7 @@
   var WL = null;
   function wake(ask) {
     if (!('wakeLock' in navigator)) return;
+    if (ask && WL) { WL.release(); WL = null; try { localStorage.setItem('gabi-day-wl', '0'); } catch (x) {} render(true); return; }
     navigator.wakeLock.request('screen').then(function (l) {
       WL = l; try { localStorage.setItem('gabi-day-wl', '1'); } catch (x) {}
       l.addEventListener('release', function () { WL = null; });
@@ -256,20 +368,41 @@
 
   /* ---------- taps ---------- */
   document.addEventListener('click', function (ev) {
-    var b = ev.target.closest('button'); if (!b) return;
+    var b = ev.target.closest('button,[data-sheetbg]'); if (!b) return;
+    if (b.dataset.sheetbg && ev.target !== b) return;
     var D = cur(), S = D ? stOf(D.id) : null;
-    if (b.dataset.go === 'home') { if (D) S.y[UI.tab] = window.scrollY; UI.view = 'home'; UI.chose = weddingDay(); saveUI(); saveST(); render(false); return; }
-    if (b.dataset.wid) { EDIT = false; UI.homeY = window.scrollY; UI.view = 'wedding'; UI.wid = b.dataset.wid; if (!UI.tab) UI.tab = 'now'; saveUI(); render(false); return; }
-    if (b.dataset.tab) { if (S) S.y[UI.tab] = window.scrollY; UI.tab = b.dataset.tab; saveUI(); saveST(); render(false); return; }
+    if (b.dataset.sheetbg) { SHEET = false; render(true); return; }
+    if (b.dataset.sheet != null) { SHEET = b.dataset.sheet === '1'; render(true); return; }
+    if (b.dataset.view) { remember(); EDIT = false; UI.view = b.dataset.view; saveUI(); render(false); return; }
+    if (b.dataset.back) {
+      remember(); SHEET = false;
+      if (b.dataset.back !== 'home' && UI.view === 'wedding' && UI.group) { UI.group = null; }
+      else if (b.dataset.back !== 'home' && UI.view === 'wedding' && ['where', 'contacts', 'notes'].indexOf(UI.tab) >= 0) { UI.tab = 'overview'; }
+      else { UI.view = 'home'; UI.chose = weddingDay(); }
+      saveUI(); saveST(); render(false); return;
+    }
+    if (b.dataset.wid) { remember(); EDIT = false; UI.view = 'wedding'; UI.wid = b.dataset.wid; UI.tab = 'overview'; UI.group = null; saveUI(); render(false); return; }
+    if (b.dataset.wtab) { remember(); SHEET = false; if (b.dataset.wtab === 'more') { SHEET = true; render(true); return; } UI.tab = b.dataset.wtab; UI.group = null; saveUI(); render(false); return; }
+    if (b.dataset.page) { remember(); SHEET = false; UI.tab = b.dataset.page; UI.group = null; saveUI(); render(false); return; }
+    if (S && b.dataset.seg) { UI.famSeg = b.dataset.seg; saveUI(); render(true); return; }
+    if (S && b.dataset.group != null) { remember(); UI.group = b.dataset.group || null; saveUI(); render(false); return; }
+    if (S && b.dataset.famset) {
+      var id = UI.group, v = b.dataset.famset; if (!id) return;
+      S.fam[id] = v === 'done'; S.later[id] = v === 'later'; saveST();
+      if (v === 'done' || v === 'later') {
+        var nx = D.fam.filter(function (x) { return x.id !== id && famState(S, x) === 'todo'; })[0];
+        UI.group = nx ? nx.id : null; toast(v === 'done' ? (nx ? '✓ Done. Next: ' + nx.text : '✓ All family groups done') : 'Moved to Later');
+      }
+      saveUI(); render(false); return;
+    }
     if (S && b.dataset.t) { S.done[b.dataset.t] = !S.done[b.dataset.t]; saveST(); render(true); return; }
-    if (S && b.dataset.f) { S.fam[b.dataset.f] = !S.fam[b.dataset.f]; saveST(); render(true); return; }
     if (S && b.dataset.open) { S.open[b.dataset.open] = !S.open[b.dataset.open]; saveST(); render(true); return; }
     if (S && b.dataset.flt) { S.filter = b.dataset.flt; saveST(); render(false); return; }
     if (S && b.dataset.q) { var d = new Date(); S.notes = (S.notes ? S.notes + '\n' : '') + f12(d.getHours() * 60 + d.getMinutes()) + ' ' + b.dataset.q; saveST(); render(true); toast('Added'); return; }
     if (b.dataset.rm) {
       var R = WEDS.filter(function (x) { return x.id === b.dataset.rm; })[0];
       if (R && confirm('Remove ' + R.couple + ' from this phone? Send your checkmarks back first if you need them. Your main app keeps the wedding.')) {
-        WEDS = WEDS.filter(function (x) { return x !== R; }); delete ST[R.id]; if (UI.wid === R.id) { UI.wid = null; UI.view = 'home'; saveUI(); }
+        WEDS = WEDS.filter(function (x) { return x !== R; }); delete ST[R.id]; if (UI.wid === R.id) { UI.wid = null; }
         Promise.all([put('weddings', WEDS), put('state', ST)]).then(function () { render(true); toast('Removed from this phone'); });
       }
       return;
@@ -278,31 +411,28 @@
     if (act === 'savecode') {
       var c = normCode(document.getElementById('code').value);
       if (c.length < 12) { toast('That code looks too short. Copy it again from your main app.'); return; }
-      CODE = c; put('code', c).then(function () { render(false); toast('Paired. Now load your weddings.'); }); return;
+      CODE = c; put('code', c).then(function () { UI.view = 'home'; render(false); toast('Paired. Now load your weddings.'); }); return;
     }
-    if (act === 'changecode') { if (confirm('Change the pairing code? Your weddings stay on this phone.')) { CODE = null; del('code'); render(false); } return; }
-    if (act === 'wipe') { if (confirm('Remove all weddings, checkmarks and notes from this phone? Your main app keeps everything.')) { WEDS = []; ST = {}; MADE = ''; UI = { view: 'home', wid: null, tab: 'now' }; saveUI(); Promise.all([del('weddings'), del('state'), del('made')]).then(function () { render(false); toast('Removed from this phone'); }); } return; }
     if (act === 'edit') { EDIT = !EDIT; render(true); return; }
+    if (act === 'changecode') { if (confirm('Change the pairing code? Your weddings stay on this phone.')) { CODE = null; del('code'); render(false); } return; }
+    if (act === 'wipe') { if (confirm('Remove all weddings, checkmarks and notes from this phone? Your main app keeps everything.')) { WEDS = []; ST = {}; MADE = ''; UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' }; saveUI(); Promise.all([del('weddings'), del('state'), del('made')]).then(function () { render(false); toast('Removed from this phone'); }); } return; }
     if (act === 'load') { loadWeddings(); return; }
     if (act === 'sendback') { sendBack(); return; }
     if (act === 'wake') { wake(true); return; }
-    if (act === 'clear' && S) { if (confirm('Clear all checkmarks for this wedding? Your notes stay.')) { S.done = {}; S.fam = {}; saveST(); render(true); toast('Cleared'); } return; }
+    if (act === 'clear' && S) { if (confirm('Clear all checkmarks for this wedding? Your notes stay.')) { S.done = {}; S.fam = {}; S.later = {}; saveST(); render(true); toast('Cleared'); } return; }
   });
 
   /* remember where you were, and refresh the clock without jumping the page */
   var sT = null, lastTouch = 0;
-  window.addEventListener('scroll', function () {
-    clearTimeout(sT);
-    sT = setTimeout(function () { var D = cur(); if (UI.view === 'wedding' && D) { stOf(D.id).y[UI.tab] = window.scrollY; saveST(); } else { UI.homeY = window.scrollY; saveUI(); } }, 250);
-  }, { passive: true });
+  window.addEventListener('scroll', function () { clearTimeout(sT); sT = setTimeout(function () { remember(); saveUI(); }, 250); }, { passive: true });
   ['touchstart', 'pointerdown', 'scroll', 'keydown'].forEach(function (n) { window.addEventListener(n, function () { lastTouch = Date.now(); }, { passive: true, capture: true }); });
   setInterval(function () {
     var c = document.getElementById('clock'); if (c) c.textContent = clockNow();
-    var D = cur(); if (UI.view === 'wedding' && UI.tab === 'now' && D && isToday(D) && Date.now() - lastTouch > 15000 && !document.hidden) render(true);
+    var D = cur(); if (UI.view === 'wedding' && (UI.tab === 'now' || UI.tab === 'overview') && D && isToday(D) && !SHEET && Date.now() - lastTouch > 15000 && !document.hidden) render(true);
   }, 30000);
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') { try { if (localStorage.getItem('gabi-day-wl') === '1') wake(false); } catch (x) {} var c = document.getElementById('clock'); if (c) c.textContent = clockNow(); }
-    else saveST();
+    else { remember(); saveUI(); saveST(); }
   });
 
   /* ---------- start ---------- */
@@ -310,8 +440,8 @@
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (x) {}
   Promise.all([get('code'), get('weddings'), get('made'), get('state')]).then(function (r) {
     CODE = r[0] || null; WEDS = Array.isArray(r[1]) ? r[1] : []; MADE = r[2] || ''; ST = r[3] || {};
-    if (!cur()) { UI.view = 'home'; UI.wid = null; }
-    if (UI.view === 'home') { var t = WEDS.filter(function (D) { return isToday(D); })[0]; if (t && UI.chose !== weddingDay()) { /* wedding today: open it */ UI.view = 'wedding'; UI.wid = t.id; } }
+    if (UI.view === 'wedding' && !cur()) { UI.view = 'home'; UI.wid = null; }
+    if (UI.view !== 'wedding') { var t = WEDS.filter(function (D) { return isToday(D); })[0]; if (t && UI.chose !== weddingDay()) { UI.view = 'wedding'; UI.wid = t.id; UI.tab = 'overview'; } }
     render(false);
     try { if (localStorage.getItem('gabi-day-wl') === '1') wake(false); } catch (x) {}
   });
