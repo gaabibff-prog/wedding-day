@@ -54,7 +54,7 @@
 
 
   /* ---------- state ---------- */
-  var VERSION = 15, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
+  var VERSION = 16, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
   var UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' };
   try { var u0 = JSON.parse(localStorage.getItem('gabi-day-ui') || 'null'); if (u0) { for (var k0 in u0) UI[k0] = u0[k0]; } } catch (e) {}
   if (['home', 'weddings', 'sync', 'settings', 'wedding'].indexOf(UI.view) < 0) UI.view = 'home';
@@ -461,6 +461,7 @@
       var n = 0; return fs.reduce(function (pr, f) { return pr.then(function () { return f.text().then(applyWeddingsText).then(function (k) { n += k; }); }); }, Promise.resolve()).then(function () { render(false); toast('\u2713 ' + n + ' wedding' + (n === 1 ? '' : 's') + ' saved on this phone'); });
     }).catch(function (err) { toast(err && err.message ? err.message : 'Could not open that file.'); });
   }
+function stampNow() { var d = new Date(), h = d.getHours(), m = d.getMinutes(); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + ' ' + d.getDate() + ' ' + ((h % 12) || 12) + '.' + (m < 10 ? '0' : '') + m + (h < 12 ? 'am' : 'pm'); }
   function sendBack() {
     Promise.all(WEDS.map(function (D) { return loadPhotos(D.id); })).then(sendBack2);
   }
@@ -480,7 +481,7 @@
   function sendBack2() {
     buildResults().then(function (text) {
       if (!text) { toast('Nothing to send yet. Check off shots or add notes first.'); return; }
-      var name = 'Wedding Day results ' + new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-') + '.gabiday';
+      var who = WEDS.filter(function (D) { var S = stOf(D.id); return Object.keys(S.done).length || Object.keys(S.fam).length || String(S.notes || '').trim(); }).map(function (D) { return String(D.couple).replace(/&/g, 'and').replace(/[\\/:*?"<>|]+/g, ' ').trim(); }); var name = 'Wedding Day checkmarks - ' + (who[0] || 'notes') + (who.length > 1 ? ' + ' + (who.length - 1) + ' more' : '') + ' - ' + stampNow() + '.gabiday';
       var file = new File([text], name, { type: 'application/octet-stream' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         return navigator.share({ files: [file], title: 'Wedding Day results' }).then(function () { toast('Now open your main app and tap Load Day-of app results.'); }, function () {});

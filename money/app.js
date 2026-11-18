@@ -55,7 +55,7 @@
 
 
   /* ---------- state ---------- */
-  var VERSION = 2, TRK = null, WATCH = null, WL = null, CODE = null, MONEY = { trips: [], receipts: [], odo: {} }, MSHEET = null, VIEW = 'drives';
+  var VERSION = 3, TRK = null, WATCH = null, WL = null, CODE = null, MONEY = { trips: [], receipts: [], odo: {} }, MSHEET = null, VIEW = 'drives';
   try { VIEW = localStorage.getItem('gabi-money-view') || 'drives'; } catch (x) {}
   function e(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function f12(m) { m = ((Math.round(m) % 1440) + 1440) % 1440; var h = Math.floor(m / 60), mi = m % 60; return ((h % 12) || 12) + ':' + (mi < 10 ? '0' : '') + mi + ' ' + (h < 12 ? 'AM' : 'PM'); }
@@ -263,10 +263,11 @@
     return lock({ made: new Date().toLocaleString(), app: 'money', weddings: {}, money: { trips: mt, receipts: mr } }, CODE, 'results');
   }
   function markSent() { if (!PENDING) return; var now = Date.now(); MONEY.trips.forEach(function (t) { if (PENDING.trips.indexOf(t.id) >= 0) t.sent = now; }); MONEY.receipts.forEach(function (r) { if (PENDING.receipts.indexOf(r.id) >= 0) r.sent = now; }); PENDING = null; saveMoney(); }
+function stampNow() { var d = new Date(), h = d.getHours(), m = d.getMinutes(); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + ' ' + d.getDate() + ' ' + ((h % 12) || 12) + '.' + (m < 10 ? '0' : '') + m + (h < 12 ? 'am' : 'pm'); }
   function sendFile() {
     buildOut().then(function (text) {
       if (!text) { toast('Nothing new to send.'); return; }
-      var name = 'Gabi Money ' + new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-') + '.gabiday', file = new File([text], name, { type: 'application/octet-stream' });
+      var nT = (PENDING && PENDING.trips.length) || 0, nR = (PENDING && PENDING.receipts.length) || 0, name = 'Gabi Money - ' + [nT ? nT + ' drive' + (nT === 1 ? '' : 's') : '', nR ? nR + ' receipt' + (nR === 1 ? '' : 's') : ''].filter(Boolean).join(', ') + ' - ' + stampNow() + '.gabiday', file = new File([text], name, { type: 'application/octet-stream' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) return navigator.share({ files: [file], title: name }).then(function () { markSent(); render(true); toast('Now load it in your main app: Money → From your phone.'); }, function () { PENDING = null; });
       var a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; document.body.appendChild(a); a.click(); a.remove(); markSent(); render(true);
     });
