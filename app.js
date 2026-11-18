@@ -54,7 +54,7 @@
 
 
   /* ---------- state ---------- */
-  var VERSION = 11, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
+  var VERSION = 12, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
   var UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' };
   try { var u0 = JSON.parse(localStorage.getItem('gabi-day-ui') || 'null'); if (u0) { for (var k0 in u0) UI[k0] = u0[k0]; } } catch (e) {}
   if (['home', 'weddings', 'sync', 'settings', 'wedding'].indexOf(UI.view) < 0) UI.view = 'home';
@@ -534,7 +534,9 @@
       var seen = null; try { seen = localStorage.getItem('gabi-day-lastin'); } catch (x) {}
       if (seen === top.b + '@' + fs[0].modifiedTime) return;
       if (parts.length < top.n) throw new Error('Your main app is still sending (' + parts.length + ' of ' + top.n + '). Wait a minute and tap Sync again.');
-      return parts.reduce(function (pr, f) { return pr.then(function () { return gfetch(API + '/' + f.id + '?alt=media').then(function (r) { return r.text(); }).then(applyWeddingsText).then(function (n) { got += n; }); }); }, Promise.resolve())
+      var texts = [];
+      return parts.reduce(function (pr, f, k) { return pr.then(function () { var sb = document.querySelector('[data-act=sync]'); if (sb) sb.textContent = 'Downloading ' + (k + 1) + ' of ' + parts.length + '\u2026'; return gfetch(API + '/' + f.id + '?alt=media').then(function (r) { return r.text(); }).then(function (t) { texts.push(t); }); }); }, Promise.resolve())
+        .then(function () { var joined = texts.join(''); try { JSON.parse(joined); } catch (x) { return texts.reduce(function (pr, t) { return pr.then(function () { return applyWeddingsText(t).then(function (n) { got += n; }); }); }, Promise.resolve()); } return applyWeddingsText(joined).then(function (n) { got += n; }); })
         .then(function () { try { localStorage.setItem('gabi-day-lastin', top.b + '@' + fs[0].modifiedTime); } catch (x) {} });
     }).then(buildResults).then(function (text) {
       if (!text) return;
