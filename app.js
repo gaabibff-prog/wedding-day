@@ -120,7 +120,7 @@
     if (list.length) h += '<div class="btns"><button class="btn full" data-act="sendback">Send checkmarks & notes back to my main app</button></div>';
     h += installHint();
     h += '<details class="card" style="margin-top:16px"><summary><b>Settings</b></summary>' +
-      '<p class="hint">Everything is stored only on this phone.</p>' +
+      '<p class="hint">Everything is stored only on this phone. App version 3.</p>' +
       '<div class="btns"><button class="btn" data-act="changecode">Change pairing code</button><button class="btn dg" data-act="wipe">Remove all weddings from this phone</button></div></details>';
     return h;
   }

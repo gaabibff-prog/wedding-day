@@ -1,5 +1,6 @@
-/* Offline support: keeps the app files on the phone so it opens with no signal. */
-const CACHE = 'gabi-day-v2';
+/* Offline support: keeps the app files on the phone so it opens with no signal.
+   With signal, it checks for a newer version first (up to 3 seconds), so updates show up right away. */
+const CACHE = 'gabi-day-v3';
 const FILES = ['./', './index.html', './app.js', './manifest.webmanifest', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -14,18 +15,15 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-/* App files: answer from the phone first, then refresh in the background when there is signal. */
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
   e.respondWith(
-    caches.open(CACHE).then((c) =>
-      c.match(req, { ignoreSearch: true }).then((hit) => {
-        const net = fetch(req)
-          .then((res) => { if (res && res.ok) c.put(req, res.clone()); return res; })
-          .catch(() => hit || c.match('./index.html'));
-        return hit || net;
-      })
-    )
+    caches.open(CACHE).then((c) => {
+      const fromCache = () => c.match(req, { ignoreSearch: true }).then((hit) => hit || c.match('./index.html'));
+      const net = fetch(req, { cache: 'no-cache' }).then((res) => { if (res && res.ok) c.put(req, res.clone()); return res; });
+      const timeout = new Promise((resolve) => setTimeout(resolve, 3000));
+      return Promise.race([net.catch(() => null), timeout]).then((res) => res || fromCache());
+    })
   );
 });
