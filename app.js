@@ -54,10 +54,10 @@
 
 
   /* ---------- state ---------- */
-  var VERSION = 13, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
+  var VERSION = 14, MONEY = { trips: [], receipts: [], odo: {} }, MSHEET = null, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
   var UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' };
   try { var u0 = JSON.parse(localStorage.getItem('gabi-day-ui') || 'null'); if (u0) { for (var k0 in u0) UI[k0] = u0[k0]; } } catch (e) {}
-  if (['home', 'weddings', 'sync', 'settings', 'wedding'].indexOf(UI.view) < 0) UI.view = 'home';
+  if (['home', 'weddings', 'money', 'sync', 'settings', 'wedding'].indexOf(UI.view) < 0) UI.view = 'home';
   if (['overview', 'now', 'fam', 'shots', 'where', 'contacts', 'notes', 'big', 'prep'].indexOf(UI.tab) < 0) UI.tab = 'overview';
   try { var a0 = localStorage.getItem('gabi-day-alert'); if (a0 != null) ALERT = +a0 || 0; } catch (e) {}
   function saveUI() { try { localStorage.setItem('gabi-day-ui', JSON.stringify(UI)); } catch (e) {} }
@@ -100,12 +100,14 @@
     note: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h7"/>',
     spark: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
     close: '<path d="M6 6l12 12M18 6L6 18"/>',
-    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>'
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    car: '<path d="M5 16v-3.5L7 8h10l2 4.5V16z"/><path d="M5 12.5h14"/><circle cx="8" cy="16.5" r="1.8"/><circle cx="16" cy="16.5" r="1.8"/>',
+    receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>'
   };
   function svg(n) { return '<svg viewBox="0 0 24 24" aria-hidden="true">' + (IC[n] || '') + '</svg>'; }
 
   /* ---------- top bar and bottom tabs ---------- */
-  var HOME_TABS = [['home', 'Home', 'home'], ['weddings', 'Weddings', 'rings'], ['sync', 'Sync', 'sync'], ['settings', 'Settings', 'gear']];
+  var HOME_TABS = [['home', 'Home', 'home'], ['weddings', 'Weddings', 'rings'], ['money', 'Money', 'car'], ['sync', 'Sync', 'sync'], ['settings', 'Settings', 'gear']];
   var WED_TABS = [['overview', 'Overview', 'brief'], ['now', 'Timeline', 'clock'], ['fam', 'Family', 'camera'], ['shots', 'Shot list', 'list'], ['more', 'More', 'more']];
   function bars() {
     var hd = document.getElementById('hd'), tb = document.getElementById('tb'), D = cur();
@@ -116,7 +118,7 @@
       var t = ['where', 'contacts', 'notes', 'prep'].indexOf(UI.tab) >= 0 ? 'more' : UI.tab === 'big' ? 'now' : UI.tab;
       tb.innerHTML = WED_TABS.map(function (x) { return '<button class="tab" data-wtab="' + x[0] + '"' + (t === x[0] ? ' aria-current="page"' : '') + '><span class="ti">' + svg(x[2]) + '</span>' + x[1] + '</button>'; }).join('');
     } else {
-      var name = { home: 'Home', weddings: 'Weddings', sync: 'Sync with main app', settings: 'Settings' }[UI.view] || 'Home';
+      var name = { home: 'Home', weddings: 'Weddings', money: 'Money for taxes', sync: 'Sync with main app', settings: 'Settings' }[UI.view] || 'Home';
       hd.innerHTML = '<div class="bar"><span class="ttl" style="padding-left:6px">' + name + '</span><span class="clock" id="clock">' + clockNow() + '</span></div>';
       tb.innerHTML = HOME_TABS.map(function (x) { return '<button class="tab" data-view="' + x[0] + '"' + (UI.view === x[0] ? ' aria-current="page"' : '') + '><span class="ti">' + svg(x[2]) + '</span>' + x[1] + '</button>'; }).join('');
     }
@@ -222,6 +224,100 @@
         (P.short ? ' Still ' + P.short + ' min short: let the coordinator know.' : '') + '</p><p class="hint" style="margin:4px 0 0">New times are shown below from ' + e(P.from.label) + ' on.</p>';
     }
     return h + '</div>';
+  }
+
+
+  /* ---------- Money: drives and receipts for taxes ---------- */
+  function saveMoney() { return put('money', MONEY); }
+  function yr() { return String(new Date().getFullYear()); }
+  function tripsYear(y) { return MONEY.trips.filter(function (t) { return String(t.date).slice(0, 4) === y; }).sort(function (a, b) { return (b.date + (b.start || '')).localeCompare(a.date + (a.start || '')); }); }
+  function hm(iso) { if (!iso) return ''; var d = new Date(iso); return isNaN(d) ? '' : f12(d.getHours() * 60 + d.getMinutes()); }
+  function parseDrives(text) {
+    var n = 0, have = {}; MONEY.trips.forEach(function (t) { have[t.id] = 1; });
+    String(text).split(/\r?\n/).forEach(function (line) {
+      var p = line.split('|').map(function (x) { return x.trim(); });
+      if (p[0] !== 'TRIP' || p.length < 6) return;
+      var st = new Date(p[1]), en = new Date(p[2]), mi = parseFloat(String(p[5]).replace(/[^\d.]/g, ''));
+      if (isNaN(st) || !(mi > 0.2)) return;
+      if (/km/i.test(p[5])) mi = mi * 0.621371;
+      var id = 'd' + st.getTime(); if (have[id]) return; have[id] = 1;
+      MONEY.trips.push({ id: id, date: dayIso(st), start: st.toISOString(), end: isNaN(en) ? '' : en.toISOString(), from: p[3] || '', to: p[4] || '', miles: Math.round(mi * 10) / 10, purpose: '', business: null, wid: '', auto: true });
+      n++;
+    });
+    return n;
+  }
+  function importDrives() {
+    var inp = document.getElementById('file'); inp.value = ''; inp.accept = '.txt,text/plain';
+    inp.onchange = function () { var f = inp.files && inp.files[0]; inp.accept = ''; if (!f) return; f.text().then(function (t) { var n = parseDrives(t); return saveMoney().then(function () { render(true); toast(n ? '✓ ' + n + ' new drive' + (n === 1 ? '' : 's') + '. Mark each one Business or Personal.' : 'No new drives in that file.'); }); }); };
+    inp.click();
+  }
+  function addReceipt() {
+    var inp = document.getElementById('file'); inp.value = ''; inp.accept = 'image/*,application/pdf'; inp.multiple = true;
+    inp.onchange = function () {
+      var fs = [].slice.call(inp.files || []); inp.accept = ''; inp.multiple = false; if (!fs.length) return;
+      Promise.all(fs.slice(0, 10).map(function (f) {
+        if (f.type === 'application/pdf') return new Promise(function (res, rej) { if (f.size > 3.5e6) return rej(new Error('That PDF is over 3.5 MB.')); var r = new FileReader(); r.onload = function () { res({ data: r.result, type: 'application/pdf', name: f.name }); }; r.onerror = rej; r.readAsDataURL(f); });
+        return new Promise(function (res, rej) { var r = new FileReader(); r.onerror = rej; r.onload = function () { var im = new Image(); im.onerror = rej; im.onload = function () { var mx = 1800, sc = Math.min(1, mx / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = Math.round(im.width * sc); c.height = Math.round(im.height * sc); var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height); res({ data: c.toDataURL('image/jpeg', 0.8), type: 'image/jpeg', name: (f.name || 'receipt').replace(/\.\w+$/, '') + '.jpg' }); }; im.src = r.result; }; r.readAsDataURL(f); });
+      })).then(function (list) {
+        list.forEach(function (x) { MONEY.receipts.push({ id: 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at: Date.now(), name: x.name, type: x.type, data: x.data, note: '', sent: 0 }); });
+        return saveMoney();
+      }).then(function () { render(true); toast('Receipt saved. It goes to your main app next time you Sync.'); }, function (er) { toast(er && er.message ? er.message : 'Could not save that receipt.'); });
+    };
+    inp.click();
+  }
+  function milesCSV(y) {
+    var T = tripsYear(y).filter(function (t) { return t.business === true; }).reverse(), q = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    var wn = function (id) { var D = WEDS.filter(function (x) { return x.id === id; })[0]; return D ? D.couple : ''; };
+    var rows = [['Date', 'Start time', 'End time', 'From', 'To', 'Business purpose', 'Miles', 'Odometer start', 'Odometer end', 'Wedding']];
+    T.forEach(function (t) { rows.push([t.date, hm(t.start), hm(t.end), t.from, t.to, t.purpose, t.miles, t.odoStart || '', t.odoEnd || '', wn(t.wid)]); });
+    var o = MONEY.odo[y] || {}, tot = T.reduce(function (a, t) { return a + (+t.miles || 0); }, 0);
+    rows.push([]); rows.push(['Total business miles', '', '', '', '', '', Math.round(tot * 10) / 10]);
+    rows.push(['Odometer Jan 1', o.start || '']); rows.push(['Odometer Dec 31', o.end || '']);
+    return rows.map(function (r) { return r.map(q).join(','); }).join('\n');
+  }
+  function exportMiles() {
+    var y = yr(), text = milesCSV(y), name = 'Mileage log ' + y + '.csv', file = new File([text], name, { type: 'text/csv' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { navigator.share({ files: [file], title: name }).catch(function () {}); return; }
+    var a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  }
+  function vMoney() {
+    var y = yr(), T = tripsYear(y), todo = T.filter(function (t) { return t.business == null; }), biz = T.filter(function (t) { return t.business === true; }), pers = T.filter(function (t) { return t.business === false; });
+    var bm = Math.round(biz.reduce(function (a, t) { return a + (+t.miles || 0); }, 0) * 10) / 10, unsentR = MONEY.receipts.filter(function (r) { return !r.sent; }).length, unsentT = biz.filter(function (t) { return !t.sent; }).length, o = MONEY.odo[y] || {};
+    var h = '<h1 class="hello">Money</h1><p class="sub">Drives and receipts for your taxes. They go to your main app when you Sync.</p>';
+    h += '<div class="stat"><div><b>' + bm + '</b><small>Business miles ' + y + '</small></div><div><b>' + MONEY.receipts.length + '</b><small>Receipts</small></div></div>';
+    if (unsentR || unsentT) h += '<div class="card tint" style="padding:14px 16px"><b>' + [unsentT ? unsentT + ' drive' + (unsentT === 1 ? '' : 's') : '', unsentR ? unsentR + ' receipt' + (unsentR === 1 ? '' : 's') : ''].filter(Boolean).join(' and ') + ' waiting to send</b><div class="btns" style="margin-top:10px"><button class="btn dark" data-act="sync">Sync now</button></div></div>';
+    h += '<div class="h2">Receipts</div><button class="btn dark" data-act="addreceipt">' + svg('camera') + ' Snap or upload a receipt</button><p class="hint">Photo, screenshot or PDF. Claude reads it in your main app.</p>';
+    if (MONEY.receipts.length) h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">' + MONEY.receipts.slice().reverse().slice(0, 30).map(function (r) { return '<button data-rcpt="' + e(r.id) + '" style="border:1px solid var(--line);border-radius:12px;padding:0;background:var(--card);overflow:hidden;position:relative;aspect-ratio:1">' + (r.type === 'application/pdf' ? '<span style="display:flex;height:100%;align-items:center;justify-content:center;flex-direction:column;gap:4px;color:var(--mute)">' + svg('receipt') + '<small>PDF</small></span>' : '<img src="' + r.data + '" alt="Receipt" style="width:100%;height:100%;object-fit:cover;display:block">') + '<span style="position:absolute;left:4px;bottom:4px;background:' + (r.sent ? 'var(--ok)' : 'var(--dark)') + ';color:#fff;font-size:11px;border-radius:6px;padding:1px 6px">' + (r.sent ? 'Sent' : 'Not sent') + '</span></button>'; }).join('') + '</div>';
+    h += '<div class="h2">Drives</div><div class="row2"><button class="btn" data-act="adddrive">+ Add a drive</button><button class="btn" data-act="importdrives">Import drives</button></div>';
+    if (todo.length) h += '<div class="h2" style="font-size:17px">Business or personal? <small class="sub" style="font-weight:500">' + todo.length + '</small></div><div class="list">' + todo.map(function (t) { return '<div class="li" style="flex-wrap:wrap"><span class="t"><b>' + e(t.miles) + ' mi · ' + e(t.date) + '</b><small>' + e([hm(t.start), t.from && t.to ? t.from + ' → ' + t.to : (t.from || t.to)].filter(Boolean).join(' · ')) + '</small></span><span class="row2" style="flex:0 0 auto;gap:6px"><button class="btn" data-bizset="' + e(t.id) + ':1" style="width:auto;min-height:40px;font-size:15px">Business</button><button class="btn link" data-bizset="' + e(t.id) + ':0" style="width:auto;min-height:40px;font-size:15px">Personal</button></span></div>'; }).join('') + '</div>';
+    h += '<div class="h2" style="font-size:17px">Business drives ' + y + '</div>' + (biz.length ? '<div class="list">' + biz.map(function (t) { return '<button class="li" data-trip="' + e(t.id) + '"><span class="ico" style="color:var(--icon)">' + svg('car') + '</span><span class="t"><b>' + e(t.miles) + ' mi · ' + e(t.purpose || 'Add the purpose') + '</b><small>' + e(t.date) + (t.from || t.to ? ' · ' + e([t.from, t.to].filter(Boolean).join(' → ')) : '') + (t.sent ? ' · sent' : '') + '</small></span><span class="chev">›</span></button>'; }).join('') + '</div>' : '<p class="sub">None yet.</p>');
+    if (pers.length) h += '<details class="card" style="padding:12px 16px"><summary><b>Personal drives</b> <span class="sub">' + pers.length + ' · not counted</span></summary><div class="list" style="margin-top:10px">' + pers.map(function (t) { return '<button class="li" data-trip="' + e(t.id) + '"><span class="t"><b style="font-weight:500">' + e(t.miles) + ' mi · ' + e(t.date) + '</b></span><span class="chev">›</span></button>'; }).join('') + '</div></details>';
+    h += '<div class="h2" style="font-size:17px">Odometer ' + y + '</div><p class="hint" style="margin-top:-4px">The IRS asks for your car’s odometer at the start and end of the year.</p><div class="row2"><label style="flex:1"><span class="sub">January 1</span><input type="text" inputmode="numeric" data-odo="start" value="' + e(o.start || '') + '" placeholder="e.g. 42150"></label><label style="flex:1"><span class="sub">December 31</span><input type="text" inputmode="numeric" data-odo="end" value="' + e(o.end || '') + '" placeholder="e.g. 51320"></label></div>';
+    h += '<div class="btns"><button class="btn" data-act="exportmiles">Download IRS mileage log (CSV)</button></div>';
+    h += '<details class="card" style="margin-top:16px"><summary><b>Log drives automatically with CarPlay</b></summary><div class="hint" style="color:var(--ink)">' + SHORTCUT_HELP + '</div></details>';
+    return h;
+  }
+  var SHORTCUT_HELP = '<p>Your iPhone’s Shortcuts app logs each drive when CarPlay connects and disconnects, even with this app closed. It saves only the city, never your street address.</p>' +
+    '<p><b>1. When CarPlay connects</b><br>Shortcuts → Automation → + → <b>CarPlay</b> → <b>Connects</b> → <b>Run Immediately</b> → New Blank Automation. Add these actions:<br>• <b>Get Current Location</b><br>• <b>Text</b>: type <code>START|</code>, insert <b>Current Date</b> (tap it, choose Format → ISO 8601, Include time), type <code>|</code>, insert <b>Current Location</b><br>• <b>Save File</b>: save the Text to <b>Shortcuts</b> folder, name it <code>wd-start.txt</code>, turn <b>Overwrite If File Exists</b> on, and turn Ask Where to Save off.</p>' +
+    '<p><b>2. When CarPlay disconnects</b><br>New automation → CarPlay → <b>Disconnects</b> → Run Immediately. Add:<br>• <b>Get File</b> from Shortcuts folder: <code>wd-start.txt</code> (Show Document Picker off)<br>• <b>Split Text</b> by Custom <code>|</code><br>• <b>Get Item from List</b>: Item at Index <b>2</b> (rename the result Start time)<br>• <b>Get Item from List</b> (from Split Text): Item at Index <b>3</b> (rename Start place)<br>• <b>Get Current Location</b><br>• <b>Get Travel Time</b>: Driving, from <b>Start place</b> to <b>Current Location</b><br>• <b>Get Details of Travel Time</b>: <b>Distance</b><br>• <b>Get Details of Locations</b>: <b>City</b> of Start place, and again for Current Location<br>• <b>Text</b>: <code>TRIP|</code>Start time<code>|</code>Current Date (ISO 8601)<code>|</code>Start city<code>|</code>End city<code>|</code>Distance<br>• <b>Append to Text File</b>: Shortcuts folder, file <code>Wedding Day drives.txt</code>, Make New Line on.</p>' +
+    '<p><b>3. In this app</b>: tap <b>Import drives</b> and pick <code>Wedding Day drives.txt</code> from Files → iCloud Drive → Shortcuts. Only new drives are added, so import as often as you like.</p>' +
+    '<p>If a step looks different on your iPhone, send Claude a screenshot.</p>';
+  function tripSheet(t) {
+    var wo = sorted().map(function (D) { return '<option value="' + e(D.id) + '"' + (t.wid === D.id ? ' selected' : '') + '>' + e(D.couple) + ' · ' + e(D.date) + '</option>'; }).join('');
+    return '<div class="sheet" data-sheetbg="1"><div><div style="display:flex;align-items:center;margin-bottom:10px"><h3 style="font-size:22px">' + (t.isNew ? 'Add a drive' : 'Drive') + '</h3><button class="ib" data-msheet="" aria-label="Close">' + svg('close') + '</button></div>' +
+      '<div class="row2"><label><span class="sub">Date</span><input type="text" id="t-date" value="' + e(t.date) + '" placeholder="2026-11-18"></label><label><span class="sub">Miles</span><input type="text" inputmode="decimal" id="t-miles" value="' + e(t.miles || '') + '"></label></div>' +
+      '<label><span class="sub">Business purpose</span><input type="text" id="t-purpose" value="' + e(t.purpose || '') + '" placeholder="Wedding: getting ready to ceremony to reception"></label>' +
+      '<div class="row2"><label><span class="sub">From</span><input type="text" id="t-from" value="' + e(t.from || '') + '" placeholder="Town"></label><label><span class="sub">To</span><input type="text" id="t-to" value="' + e(t.to || '') + '" placeholder="Town"></label></div>' +
+      '<div class="row2"><label><span class="sub">Odometer start</span><input type="text" inputmode="numeric" id="t-os" value="' + e(t.odoStart || '') + '"></label><label><span class="sub">Odometer end</span><input type="text" inputmode="numeric" id="t-oe" value="' + e(t.odoEnd || '') + '"></label></div>' +
+      '<label><span class="sub">Wedding (optional)</span><select id="t-wid" style="width:100%;border:1px solid var(--line);border-radius:14px;padding:14px;font:inherit;background:var(--card);color:var(--ink)"><option value="">None</option>' + wo + '</select></label>' +
+      '<div class="row2" style="margin-top:12px"><button class="btn' + (t.business === false ? '' : ' dark') + '" data-tsave="1">Save as business</button><button class="btn" data-tsave="0">Personal</button></div>' +
+      (t.isNew ? '' : '<div class="btns"><button class="btn dg" data-tdel="' + e(t.id) + '">Delete this drive</button></div>') + '</div></div>';
+  }
+  function rcptSheet(r) {
+    return '<div class="sheet" data-sheetbg="1"><div><div style="display:flex;align-items:center;margin-bottom:10px"><h3 style="font-size:20px">Receipt</h3><button class="ib" data-msheet="" aria-label="Close">' + svg('close') + '</button></div>' +
+      (r.type === 'application/pdf' ? '<p class="sub">' + e(r.name) + ' (PDF)</p>' : '<img src="' + r.data + '" alt="Receipt" style="width:100%;border-radius:14px;display:block;margin-bottom:10px">') +
+      '<input type="text" id="r-note" placeholder="Note (optional): what it was for" value="' + e(r.note || '') + '"><p class="hint">' + (r.sent ? 'Sent to your main app ' + e(new Date(r.sent).toLocaleString()) + '.' : 'Not sent yet. It goes with your next Sync.') + '</p>' +
+      '<div class="row2"><button class="btn dark" data-rsave="' + e(r.id) + '">Save</button><button class="btn dg" data-rdel="' + e(r.id) + '">Delete</button></div></div></div>';
   }
 
   /* ---------- wedding screens ---------- */
@@ -422,10 +518,12 @@
       h = ({ overview: vOverview, now: vTimeline, where: vWhere, fam: vFam, shots: vShots, contacts: vContacts, notes: vNotes, big: vBig, prep: vPrep }[UI.tab] || vOverview)(D, S);
     } else {
       if (UI.view === 'wedding') UI.view = 'home';
-      h = ({ home: vHome, weddings: vWeddings, sync: vSync, settings: vSettings }[UI.view] || vHome)();
+      h = ({ home: vHome, weddings: vWeddings, money: vMoney, sync: vSync, settings: vSettings }[UI.view] || vHome)();
     }
     m.innerHTML = h;
-    document.getElementById('sh').innerHTML = UI.photo && D && UI.view === 'wedding' ? photoSheet(D, UI.photo) : (SHEET && D && UI.view === 'wedding' ? sheetHtml(D) : '');
+    var MS0 = null; if (MSHEET && UI.view === 'money') { if (MSHEET.trip) MS0 = tripSheet(MSHEET.trip); else if (MSHEET.rcpt) { var rr = MONEY.receipts.filter(function (x) { return x.id === MSHEET.rcpt; })[0]; if (rr) MS0 = rcptSheet(rr); } }
+    document.getElementById('sh').innerHTML = MS0 || (UI.photo && D && UI.view === 'wedding' ? photoSheet(D, UI.photo) : (SHEET && D && UI.view === 'wedding' ? sheetHtml(D) : ''));
+    [].forEach.call(document.querySelectorAll('[data-odo]'), function (inp) { inp.addEventListener('change', function () { var y = yr(); MONEY.odo[y] = MONEY.odo[y] || {}; MONEY.odo[y][inp.dataset.odo] = inp.value.replace(/[^\d]/g, ''); saveMoney(); }); });
     if (D && UI.view === 'wedding' && !PHOTOS[D.id]) loadPhotos(D.id).then(function (a) { if (a.length && (UI.tab === 'notes' || UI.tab === 'overview')) render(true); });
     var qi = document.getElementById('q');
     if (qi) qi.addEventListener('input', function () { UI.q = qi.value; var D2 = cur(); if (!D2) return; document.getElementById('qres').innerHTML = searchHtml(D2, stOf(D2.id), UI.q); document.getElementById('shotbody').hidden = !!String(UI.q).trim(); });
@@ -473,7 +571,10 @@
       D.fam.forEach(function (x) { if (S.fam[x.id]) fam[x.id] = true; });
       if (Object.keys(shots).length || Object.keys(fam).length || String(S.notes || '').trim() || ph.length) out.weddings[D.id] = { couple: D.couple, shots: shots, fam: fam, notes: String(S.notes || ''), photos: ph };
     });
-    if (!Object.keys(out.weddings).length) return null;
+    var mt = MONEY.trips.filter(function (t) { return t.business === true && !t.sent; }).map(function (t) { var D = WEDS.filter(function (x) { return x.id === t.wid; })[0]; return Object.assign({}, t, { wedding: D ? D.couple : '' }); }), mr = MONEY.receipts.filter(function (r) { return !r.sent; });
+    if (mt.length || mr.length) out.money = { trips: mt, receipts: mr };
+    PENDING = { trips: mt.map(function (t) { return t.id; }), receipts: mr.map(function (r) { return r.id; }) };
+    if (!Object.keys(out.weddings).length && !out.money) return null;
     return lock(out, CODE, 'results');
     });
   }
@@ -483,13 +584,15 @@
       var name = 'Wedding Day results ' + new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-') + '.gabiday';
       var file = new File([text], name, { type: 'application/octet-stream' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        return navigator.share({ files: [file], title: 'Wedding Day results' }).then(function () { toast('Now open your main app and tap Load Day-of app results.'); }, function () {});
+        return navigator.share({ files: [file], title: 'Wedding Day results' }).then(function () { markSent(); toast('Now open your main app and tap Load Day-of app results.'); }, function () {});
       }
       var a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
-      toast('Saved. Now open your main app and tap Load Day-of app results.');
+      markSent(); toast('Saved. Now open your main app and tap Load Day-of app results.');
     });
   }
+  var PENDING = null;
+  function markSent() { if (!PENDING) return; var now = Date.now(); MONEY.trips.forEach(function (t) { if (PENDING.trips.indexOf(t.id) >= 0) t.sent = now; }); MONEY.receipts.forEach(function (r) { if (PENDING.receipts.indexOf(r.id) >= 0) r.sent = now; }); PENDING = null; saveMoney(); }
 
   /* ---------- Google Drive sync (both directions, one tap) ---------- */
   var CLIENT_ID = '973265022633-aadpqn0c7o6tjq5difdhngsvuj8ninhm.apps.googleusercontent.com';
@@ -545,7 +648,7 @@
         if (f) return gfetch('https://www.googleapis.com/upload/drive/v3/files/' + f.id + '?uploadType=media', { method: 'PATCH', headers: { 'Content-Type': 'text/plain' }, body: text });
         var bd = 'gabi' + Date.now(), body = '--' + bd + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify({ name: 'Gabi Wedding Day - from phone.txt', mimeType: 'text/plain' }) + '\r\n--' + bd + '\r\nContent-Type: text/plain\r\n\r\n' + text + '\r\n--' + bd + '--';
         return gfetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + bd }, body: body });
-      }).then(function () { sent = true; });
+      }).then(function () { sent = true; markSent(); });
     }).then(function () {
       try { localStorage.setItem('gabi-day-lastsync', String(Date.now())); } catch (x) {}
       SYNCING = false; render(false);
@@ -576,9 +679,9 @@
     var b = ev.target.closest('button,[data-sheetbg]'); if (!b) return;
     if (b.dataset.sheetbg && ev.target !== b) return;
     var D = cur(), S = D ? stOf(D.id) : null;
-    if (b.dataset.sheetbg) { SHEET = false; UI.photo = null; render(true); return; }
+    if (b.dataset.sheetbg) { SHEET = false; UI.photo = null; MSHEET = null; render(true); return; }
     if (b.dataset.sheet != null) { SHEET = b.dataset.sheet === '1'; render(true); return; }
-    if (b.dataset.view) { remember(); EDIT = false; UI.view = b.dataset.view; saveUI(); render(false); return; }
+    if (b.dataset.view) { remember(); EDIT = false; MSHEET = null; UI.view = b.dataset.view; saveUI(); render(false); return; }
     if (b.dataset.back) {
       remember(); SHEET = false;
       if (b.dataset.back !== 'home' && UI.view === 'wedding' && UI.group) { UI.group = null; }
@@ -592,6 +695,23 @@
     if (b.dataset.page) { remember(); SHEET = false; UI.tab = b.dataset.page; UI.group = null; saveUI(); render(false); return; }
     if (S && b.dataset.seg) { UI.famSeg = b.dataset.seg; saveUI(); render(true); return; }
     if (S && b.dataset.group != null) { remember(); UI.group = b.dataset.group || null; saveUI(); render(false); return; }
+    if (b.dataset.msheet != null) { MSHEET = null; render(true); return; }
+    if (b.dataset.bizset) { var bp = b.dataset.bizset.split(':'), tb = MONEY.trips.filter(function (x) { return x.id === bp[0]; })[0]; if (tb) { tb.business = bp[1] === '1'; saveMoney(); if (tb.business && !tb.purpose) { MSHEET = { trip: Object.assign({}, tb) }; } } render(true); return; }
+    if (b.dataset.trip) { var tt = MONEY.trips.filter(function (x) { return x.id === b.dataset.trip; })[0]; if (tt) MSHEET = { trip: Object.assign({}, tt) }; render(true); return; }
+    if (b.dataset.tsave != null && MSHEET && MSHEET.trip) {
+      var tv = MSHEET.trip, gv = function (id) { var x = document.getElementById(id); return x ? x.value.trim() : ''; };
+      var os = parseFloat(gv('t-os')), oe = parseFloat(gv('t-oe')), mi = parseFloat(gv('t-miles'));
+      if (!(mi > 0) && oe > os) mi = oe - os;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(gv('t-date'))) { toast('Use a date like 2026-11-18'); return; }
+      if (!(mi > 0)) { toast('Add the miles, or the odometer start and end'); return; }
+      var rec = { id: tv.id || ('m' + Date.now().toString(36)), date: gv('t-date'), start: tv.start || '', end: tv.end || '', from: gv('t-from'), to: gv('t-to'), miles: Math.round(mi * 10) / 10, purpose: gv('t-purpose'), business: b.dataset.tsave === '1', wid: gv('t-wid'), odoStart: gv('t-os'), odoEnd: gv('t-oe'), auto: !!tv.auto, sent: 0 };
+      if (rec.business && !rec.purpose) { toast('Add the business purpose. The IRS asks for it.'); return; }
+      MONEY.trips = MONEY.trips.filter(function (x) { return x.id !== rec.id; }).concat([rec]); MSHEET = null; saveMoney(); render(true); toast('Saved'); return;
+    }
+    if (b.dataset.tdel) { if (confirm('Delete this drive?')) { MONEY.trips = MONEY.trips.filter(function (x) { return x.id !== b.dataset.tdel; }); MSHEET = null; saveMoney(); render(true); } return; }
+    if (b.dataset.rcpt) { MSHEET = { rcpt: b.dataset.rcpt }; render(true); return; }
+    if (b.dataset.rsave) { var rs = MONEY.receipts.filter(function (x) { return x.id === b.dataset.rsave; })[0]; if (rs) { var nn = (document.getElementById('r-note').value || '').trim(); if (nn !== rs.note) { rs.note = nn; rs.sent = 0; } saveMoney(); } MSHEET = null; render(true); return; }
+    if (b.dataset.rdel) { if (confirm('Delete this receipt from your phone?' )) { MONEY.receipts = MONEY.receipts.filter(function (x) { return x.id !== b.dataset.rdel; }); MSHEET = null; saveMoney(); render(true); } return; }
     if (b.dataset.photo != null) { UI.photo = b.dataset.photo || null; render(true); return; }
     if (D && b.dataset.capsave) { var pc = photosOf(D.id).filter(function (x) { return x.id === b.dataset.capsave; })[0]; if (pc) { pc.caption = (document.getElementById('cap').value || '').trim(); savePhotos(D.id); } UI.photo = null; render(true); toast('Saved'); return; }
     if (D && b.dataset.photodel) { if (confirm('Delete this photo from your phone app?')) { PHOTOS[D.id] = photosOf(D.id).filter(function (x) { return x.id !== b.dataset.photodel; }); savePhotos(D.id); UI.photo = null; render(true); } return; }
@@ -637,6 +757,10 @@
     if (act === 'changecode') { if (confirm('Change the pairing code? Your weddings stay on this phone.')) { CODE = null; del('code'); render(false); } return; }
     if (act === 'wipe') { if (confirm('Remove all weddings, checkmarks and notes from this phone? Your main app keeps everything.')) { WEDS = []; ST = {}; MADE = ''; UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' }; saveUI(); Promise.all([del('weddings'), del('state'), del('made')]).then(function () { render(false); toast('Removed from this phone'); }); } return; }
     if (act === 'sync') { syncNow(); return; }
+    if (act === 'addreceipt') { addReceipt(); return; }
+    if (act === 'importdrives') { importDrives(); return; }
+    if (act === 'exportmiles') { exportMiles(); return; }
+    if (act === 'adddrive') { MSHEET = { trip: { isNew: true, date: dayIso(new Date()), miles: '', business: true } }; render(true); return; }
     if (act === 'addphoto') { addPhoto(); return; }
     if (act === 'notify') { try { Notification.requestPermission().then(function () { render(true); }); } catch (x) {} return; }
     if (act === 'prepclear' && S) { if (confirm('Uncheck the packing and day-before lists for this wedding?')) { S.gear = {}; S.prep = {}; saveST(); render(true); } return; }
@@ -692,7 +816,8 @@
   /* ---------- start ---------- */
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (x) {}
-  Promise.all([get('code'), get('weddings'), get('made'), get('state')]).then(function (r) {
+  Promise.all([get('code'), get('weddings'), get('made'), get('state'), get('money')]).then(function (r) {
+    if (r[4] && typeof r[4] === 'object') { MONEY = r[4]; MONEY.trips = MONEY.trips || []; MONEY.receipts = MONEY.receipts || []; MONEY.odo = MONEY.odo || {}; }
     CODE = r[0] || null; WEDS = Array.isArray(r[1]) ? r[1] : []; MADE = r[2] || ''; ST = r[3] || {};
     if (UI.view === 'wedding' && !cur()) { UI.view = 'home'; UI.wid = null; }
     if (UI.view !== 'wedding') { var t = WEDS.filter(function (D) { return isToday(D); })[0]; if (t && UI.chose !== weddingDay()) { UI.view = 'wedding'; UI.wid = t.id; UI.tab = 'overview'; } }
