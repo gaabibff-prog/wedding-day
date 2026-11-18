@@ -54,7 +54,7 @@
 
 
   /* ---------- state ---------- */
-  var VERSION = 12, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
+  var VERSION = 13, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
   var UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' };
   try { var u0 = JSON.parse(localStorage.getItem('gabi-day-ui') || 'null'); if (u0) { for (var k0 in u0) UI[k0] = u0[k0]; } } catch (e) {}
   if (['home', 'weddings', 'sync', 'settings', 'wedding'].indexOf(UI.view) < 0) UI.view = 'home';
@@ -507,7 +507,8 @@
           if (r && r.access_token) { TOK = r.access_token; TOKEXP = Date.now() + (+r.expires_in || 3600) * 1000; res(TOK); }
           else rej(new Error('Google sign-in did not finish.'));
         }, error_callback: function (er) { rej(new Error(er && er.type === 'popup_closed' ? 'Sign-in was closed. Tap Sync again.' : 'Google sign-in did not finish. Tap Sync again.')); } });
-        tc.requestAccessToken({ prompt: '' });
+        var picked = false; try { picked = sessionStorage.getItem('gabi-day-picked') === '1'; } catch (x) {}
+        tc.requestAccessToken({ prompt: picked ? '' : 'select_account' }); try { sessionStorage.setItem('gabi-day-picked', '1'); } catch (x) {}
       });
     });
   }
@@ -554,7 +555,7 @@
   function lastSync() { var t = 0; try { t = +localStorage.getItem('gabi-day-lastsync') || 0; } catch (x) {} return t ? new Date(t).toLocaleString() : 'never'; }
   function syncCard() {
     return '<div class="card"><div style="display:flex;align-items:center;gap:12px"><span class="ico">' + svg('sync') + '</span><div style="flex:1"><b style="font-size:18px">Sync with Google Drive</b><div class="sub">Last synced: ' + e(lastSync()) + '</div></div></div>' +
-      '<p class="hint">Gets the weddings you sent from your main app, and sends your checkmarks, notes and photo notes back. Sign in with the Google account you use in Claude.</p>' +
+      '<p class="hint">Gets the weddings you sent from your main app, and sends your checkmarks, notes and photo notes back. When Google asks, pick the same account your main app uses (gaabibff).</p>' +
       '<button class="btn dark" data-act="sync"' + (SYNCING ? ' disabled' : '') + '>' + (SYNCING ? 'Syncing…' : 'Sync now') + '</button></div>';
   }
 
