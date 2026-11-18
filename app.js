@@ -54,13 +54,14 @@
 
 
   /* ---------- state ---------- */
-  var VERSION = 5, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
+  var VERSION = 7, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
   var UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' };
   try { var u0 = JSON.parse(localStorage.getItem('gabi-day-ui') || 'null'); if (u0) { for (var k0 in u0) UI[k0] = u0[k0]; } } catch (e) {}
   if (['home', 'weddings', 'sync', 'settings', 'wedding'].indexOf(UI.view) < 0) UI.view = 'home';
-  if (['overview', 'now', 'fam', 'shots', 'where', 'contacts', 'notes'].indexOf(UI.tab) < 0) UI.tab = 'overview';
+  if (['overview', 'now', 'fam', 'shots', 'where', 'contacts', 'notes', 'big', 'prep'].indexOf(UI.tab) < 0) UI.tab = 'overview';
+  try { var a0 = localStorage.getItem('gabi-day-alert'); if (a0 != null) ALERT = +a0 || 0; } catch (e) {}
   function saveUI() { try { localStorage.setItem('gabi-day-ui', JSON.stringify(UI)); } catch (e) {} }
-  function stOf(wid) { var s = ST[wid]; if (!s) s = ST[wid] = {}; ['done', 'fam', 'later', 'open', 'y'].forEach(function (k) { if (!s[k]) s[k] = {}; }); if (s.notes == null) s.notes = ''; if (!s.filter) s.filter = 'all'; return s; }
+  function stOf(wid) { var s = ST[wid]; if (!s) s = ST[wid] = {}; ['done', 'fam', 'later', 'open', 'y', 'gear', 'prep', 'alerted'].forEach(function (k) { if (!s[k]) s[k] = {}; }); if (s.notes == null) s.notes = ''; if (!s.filter) s.filter = 'all'; return s; }
   var saveT = null;
   function saveST() { clearTimeout(saveT); saveT = setTimeout(function () { put('state', ST); }, 150); }
 
@@ -110,9 +111,9 @@
     var hd = document.getElementById('hd'), tb = document.getElementById('tb'), D = cur();
     if (!CODE) { hd.innerHTML = '<div class="bar"><span class="ttl">Wedding Day</span></div>'; tb.innerHTML = ''; return; }
     if (UI.view === 'wedding' && D) {
-      var title = UI.group ? D.couple : ({ overview: 'Wedding brief', now: D.couple, fam: D.couple, shots: D.couple, where: 'Places', contacts: 'Contacts', notes: 'Notes' }[UI.tab] || D.couple);
+      var title = UI.group ? D.couple : ({ overview: 'Wedding brief', now: D.couple, fam: D.couple, shots: D.couple, where: 'Places', contacts: 'Contacts', notes: 'Notes', big: 'Big view', prep: 'Packing & day before' }[UI.tab] || D.couple);
       hd.innerHTML = '<div class="bar"><button class="ib" data-back="1" aria-label="Back">' + svg('back') + '</button><span class="ttl">' + e(title) + '</span>' + (isToday(D) ? '<span class="clock" id="clock">' + clockNow() + '</span>' : '') + '<button class="ib" data-sheet="1" aria-label="More">' + svg('more') + '</button></div>';
-      var t = ['where', 'contacts', 'notes'].indexOf(UI.tab) >= 0 ? 'more' : UI.tab;
+      var t = ['where', 'contacts', 'notes', 'prep'].indexOf(UI.tab) >= 0 ? 'more' : UI.tab === 'big' ? 'now' : UI.tab;
       tb.innerHTML = WED_TABS.map(function (x) { return '<button class="tab" data-wtab="' + x[0] + '"' + (t === x[0] ? ' aria-current="page"' : '') + '><span class="ti">' + svg(x[2]) + '</span>' + x[1] + '</button>'; }).join('');
     } else {
       var name = { home: 'Home', weddings: 'Weddings', sync: 'Sync with main app', settings: 'Settings' }[UI.view] || 'Home';
@@ -151,7 +152,7 @@
       var d = daysTo(next.date);
       h += '<div class="card"><div class="sub" style="margin-bottom:4px">' + (d === 0 ? 'Today’s wedding' : 'Next wedding · ' + (d === 1 ? 'tomorrow' : 'in ' + d + ' days')) + '</div><div style="font-size:24px;font-weight:700">' + e(next.couple) + '</div>' +
         '<div class="meta">' + svg('cal') + e(shortDate(next)) + '</div>' + (next.venue ? '<div class="meta">' + svg('pin') + e(next.venue) + '</div>' : '') +
-        '<div class="btns"><button class="btn dark" data-wid="' + e(next.id) + '">Open wedding</button></div></div>';
+        '<div class="btns"><button class="btn dark" data-wid="' + e(next.id) + '">Open wedding</button>' + (d <= 2 ? '<button class="btn" data-prepfor="' + e(next.id) + '">Packing & day before · ' + prepCount(next, stOf(next.id)).done + ' of ' + prepCount(next, stOf(next.id)).all + '</button>' : '') + '</div></div>';
     } else {
       h += '<div class="card"><p class="sub" style="margin-top:0;font-size:17px">Load your next wedding when you’re ready.</p><div class="btns"><button class="btn dark" data-act="load">Load weddings</button></div></div>';
     }
@@ -190,8 +191,41 @@
       '<p class="hint">Everything is stored only on this phone. App version ' + VERSION + '.</p>' + installHint();
   }
 
+
+  /* ---------- running late: new times and what to shorten ---------- */
+  var FIXED = /ceremony|entrance|introduc|sunset|golden|first dance|toast|speech|dinner|send.?off|exit|cake/i;
+  var FLEX = /portrait|family|party|couple|cocktail|detail|getting ready|candid|free time|buffer|first look|bridesmaid|groomsm|creative/i;
+  function sched(D, S) {
+    var n = D.tl.length, out = D.tl.map(function (b) { return { s: b.s, d: b.d, cut: 0 }; });
+    var sh = +S.shift || 0, from = +S.shiftFrom || 0; if (!sh || from >= n) return { t: out, plan: null };
+    var j = -1; for (var k = from + 1; k < n; k++) { if (D.tl[k].cer || FIXED.test(D.tl[k].label)) { j = k; break; } }
+    var end = j < 0 ? n : j, need = sh, flex = [];
+    for (var k2 = from; k2 < end; k2++) if (FLEX.test(D.tl[k2].label) && D.tl[k2].d >= 10) flex.push(k2);
+    flex.sort(function (a, b) { return D.tl[b].d - D.tl[a].d; });
+    flex.forEach(function (k3) { if (need <= 0) return; var c = Math.min(need, Math.floor(D.tl[k3].d / 2 / 5) * 5); if (c > 0) { out[k3].cut = c; need -= c; } });
+    var cursor = D.tl[from].s + sh;
+    for (var i = from; i < n; i++) {
+      var st = i < end ? cursor : Math.max(D.tl[i].s, cursor);
+      out[i].s = st; out[i].d = D.tl[i].d - out[i].cut; cursor = st + out[i].d;
+    }
+    var cuts = flex.filter(function (k4) { return out[k4].cut; }).map(function (k4) { return { label: D.tl[k4].label, cut: out[k4].cut }; });
+    return { t: out, plan: { anchor: j >= 0 ? D.tl[j] : null, cuts: cuts, short: Math.max(0, need), from: D.tl[from] } };
+  }
+  function lateHtml(D, S) {
+    var P = sched(D, S).plan, h = '<div class="card" style="padding:14px 16px"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b style="flex:1;min-width:120px">' + (P ? 'Running ' + S.shift + ' min late' : 'Running late?') + '</b>' +
+      [5, 10, 15, 30].map(function (m) { return '<button class="btn" data-late="' + m + '" style="width:auto;min-height:40px;padding:0 12px;font-size:15px">+' + m + '</button>'; }).join('') +
+      (P ? '<button class="btn link" data-late="0" style="width:auto;min-height:40px;padding:0 6px;font-size:15px">Back on time</button>' : '') + '</div>';
+    if (P) {
+      var a = P.anchor;
+      h += '<p class="hint" style="margin:10px 0 0;color:var(--ink)">' + (a ? 'To stay on time for <b>' + e(a.label) + '</b> at ' + f12(a.s) + ': ' : 'To catch up: ') +
+        (P.cuts.length ? P.cuts.map(function (c) { return 'shorten <b>' + e(c.label) + '</b> by ' + c.cut + ' min'; }).join(', ') + '.' : 'there is nothing easy to shorten.') +
+        (P.short ? ' Still ' + P.short + ' min short: let the coordinator know.' : '') + '</p><p class="hint" style="margin:4px 0 0">New times are shown below from ' + e(P.from.label) + ' on.</p>';
+    }
+    return h + '</div>';
+  }
+
   /* ---------- wedding screens ---------- */
-  function curIdx(D) { if (!isToday(D)) return -1; var m = nowMin(D), c = -1; D.tl.forEach(function (b, i) { if (m >= b.s && m < b.s + Math.max(b.d, 1)) c = i; }); if (c < 0) D.tl.forEach(function (b, i) { if (c < 0 && b.s > m) c = i; }); return c; }
+  function curIdx(D) { if (!isToday(D)) return -1; var T = sched(D, stOf(D.id)).t, m = nowMin(D), c = -1; T.forEach(function (b, i) { if (m >= b.s && m < b.s + Math.max(b.d, 1)) c = i; }); if (c < 0) T.forEach(function (b, i) { if (c < 0 && b.s > m) c = i; }); return c; }
   function vOverview(D, S) {
     var h = '<h1 class="big">' + e(D.couple) + '</h1><div class="meta">' + svg('cal') + e(shortDate(D)) + '</div>' + (D.venue || (D.stops[0] && D.stops[0].addr) ? '<div class="meta">' + svg('pin') + e(D.venue || D.stops[0].addr.split(',')[0]) + '</div>' : '');
     var place = (D.stops.filter(function (x) { return x.addr; })[0] || {}).addr || D.venue || '';
@@ -200,12 +234,15 @@
     var c = curIdx(D), start = c >= 0 ? c : 0, g = D.tl.slice(start, start + 3);
     h += '<div class="card tint"><div style="display:flex;align-items:center;gap:12px"><span class="ico">' + svg('clock') + '</span><div style="flex:1"><div style="font-size:22px;font-weight:700">Timeline</div><div class="sub">' + D.tl.length + ' moments planned</div></div><button class="btn link" data-wtab="now" style="width:auto;color:var(--ink)">View →</button></div>' +
       (g.length ? '<div style="border-top:1px solid var(--line);margin:14px 0 0;padding-top:12px" class="sub">' + (c >= 0 ? 'Now and next' : 'Day at a glance') + '</div><div class="glance">' + g.map(function (b) { return '<span class="tm">' + f12(b.s) + '</span><span class="dot"></span><span class="lb">' + e(b.label) + '</span>'; }).join('') + '</div>' : '') + '</div>';
+    if (isToday(D)) h += '<div class="btns" style="margin:-2px 0 12px"><button class="btn dark" data-page="big">Big view: now & next</button></div>';
     var famDone = D.fam.filter(function (x) { return S.fam[x.id]; }).length, shotDone = D.shots.filter(function (x) { return S.done[x.id]; }).length, notes = String(S.notes || '').split('\n').filter(function (x) { return x.trim(); }).length;
     h += '<div class="h2">Wedding details</div><div class="grid">' +
       '<button data-wtab="fam"><span class="ico">' + svg('people') + '</span><span><b>Family photos</b><small>' + famDone + ' of ' + D.fam.length + ' groups · ' + people(D) + ' people</small></span></button>' +
       '<button data-wtab="shots"><span class="ico">' + svg('list') + '</span><span><b>Shot list</b><small>' + shotDone + ' of ' + D.shots.length + ' captured</small></span></button>' +
       '<button data-page="contacts"><span class="ico">' + svg('phone') + '</span><span><b>Contacts</b><small>' + D.contacts.length + ' contact' + (D.contacts.length === 1 ? '' : 's') + '</small></span></button>' +
-      '<button data-page="notes"><span class="ico">' + svg('note') + '</span><span><b>Notes</b><small>' + notes + ' note' + (notes === 1 ? '' : 's') + '</small></span></button></div>';
+      '<button data-page="notes"><span class="ico">' + svg('note') + '</span><span><b>Notes</b><small>' + notes + ' note' + (notes === 1 ? '' : 's') + '</small></span></button>' +
+      '<button data-page="prep"><span class="ico">' + svg('list') + '</span><span><b>Packing</b><small>' + prepCount(D, S).done + ' of ' + prepCount(D, S).all + ' checked</small></span></button>' +
+      '<button data-page="where"><span class="ico">' + svg('pin') + '</span><span><b>Places</b><small>' + D.stops.length + ' stop' + (D.stops.length === 1 ? '' : 's') + '</small></span></button></div>';
     if (D.stops.length) h += '<div class="h2">Locations</div>' + locList(D);
     return h;
   }
@@ -224,12 +261,35 @@
     }).join('');
   }
   function vTimeline(D, S) {
-    var c = curIdx(D), h = '<h1 class="hello">Timeline</h1><p class="sub">' + (isToday(D) ? 'The current moment is highlighted.' : 'Planned times. On the wedding day the current moment is highlighted.') + '</p>';
+    var c = curIdx(D), T = sched(D, S).t, h = '<div style="display:flex;align-items:center"><h1 class="hello" style="flex:1">Timeline</h1><button class="btn" data-page="big" style="width:auto;min-height:40px;font-size:15px">Big view</button></div><p class="sub">' + (isToday(D) ? 'The current moment is highlighted.' : 'Planned times. On the wedding day the current moment is highlighted.') + '</p>';
+    h += lateHtml(D, S);
     h += '<div class="list">' + D.tl.map(function (b, i) {
-      var dn = !!S.done['t' + i], op = !!S.open['t' + i];
-      return '<div class="li' + (dn ? ' done' : '') + (i === c ? ' now' : '') + '"><button class="num" data-t="t' + i + '" aria-label="Mark done">' + (dn ? svg('check') : '') + '</button><button class="t" data-open="t' + i + '" style="border:0;background:none;text-align:left;padding:0"><small style="color:var(--mute)">' + f12(b.s) + ' – ' + f12(b.s + b.d) + '</small><b class="' + (op ? '' : '') + '" style="white-space:normal">' + e(b.label) + (b.cer ? ' ♥' : '') + '</b>' + (b.note ? (op ? '<small style="white-space:normal;color:var(--ink)">' + e(b.note) + '</small>' : '<small>Tap for notes</small>') : '') + '</button></div>';
+      var dn = !!S.done['t' + i], op = !!S.open['t' + i], moved = T[i].s !== b.s || T[i].d !== b.d;
+      var tm = moved ? '<b style="display:inline;font-size:14px;color:var(--warn)">' + f12(T[i].s) + ' – ' + f12(T[i].s + T[i].d) + '</b> <s>' + f12(b.s) + '</s>' : f12(b.s) + ' – ' + f12(b.s + b.d);
+      return '<div class="li' + (dn ? ' done' : '') + (i === c ? ' now' : '') + '"><button class="num" data-t="t' + i + '" aria-label="Mark done">' + (dn ? svg('check') : '') + '</button><button class="t" data-open="t' + i + '" style="border:0;background:none;text-align:left;padding:0"><small style="color:var(--mute)">' + tm + '</small><b style="white-space:normal">' + e(b.label) + (b.cer ? ' ♥' : '') + '</b>' + (b.note ? (op ? '<small style="white-space:normal;color:var(--ink)">' + e(b.note) + '</small>' : '<small>Tap for notes</small>') : '') + '</button></div>';
     }).join('') + '</div>';
     return h;
+  }
+  function vBig(D, S) {
+    var T = sched(D, S).t, c = curIdx(D), today = isToday(D), m = nowMin(D);
+    if (!today) c = 0;
+    var b = D.tl[c], nx = D.tl[c + 1], af = D.tl[c + 2], h = '';
+    h += '<div style="text-align:center;margin:6px 0 18px"><div style="font-size:64px;font-weight:700;letter-spacing:-.02em;line-height:1">' + clockNow().replace(/ (AM|PM)/, '<span style="font-size:24px;margin-left:6px">$1</span>') + '</div>' + (today ? '' : '<div class="sub">Preview: the wedding is ' + e(shortDate(D)) + '</div>') + '</div>';
+    if (!b) return h + '<p class="sub" style="text-align:center">The timeline is over. Great job!</p>';
+    var started = today && m >= T[c].s, left = Math.max(0, T[c].s + T[c].d - m), until = Math.max(0, T[c].s - m), pct = started && T[c].d ? Math.min(100, Math.round((m - T[c].s) / T[c].d * 100)) : 0;
+    h += '<div class="card" style="border-color:var(--accent)"><div class="sub" style="text-transform:uppercase;letter-spacing:.08em;font-size:13px;font-weight:700">' + (started ? 'Now' : 'Up next') + '</div><div style="font-size:30px;font-weight:700;line-height:1.2;margin:4px 0">' + e(b.label) + '</div>' +
+      '<div style="font-size:19px">' + (started ? '<b>' + left + ' min left</b> · until ' + f12(T[c].s + T[c].d) : (today ? 'Starts in <b>' + until + ' min</b> · ' : '') + f12(T[c].s)) + '</div>' + (started ? '<div class="bar2" style="margin:12px 0 0"><i style="width:' + pct + '%"></i></div>' : '') + (b.note ? '<p class="hint" style="margin:10px 0 0">' + e(b.note) + '</p>' : '') + '</div>';
+    if (nx) h += '<div class="card"><div class="sub" style="text-transform:uppercase;letter-spacing:.08em;font-size:13px;font-weight:700">Next</div><div style="font-size:22px;font-weight:600;margin:2px 0">' + e(nx.label) + '</div><div style="font-size:17px">' + f12(T[c + 1].s) + (today ? ' · in ' + Math.max(0, T[c + 1].s - m) + ' min' : '') + '</div></div>';
+    if (af) h += '<div class="card" style="opacity:.75"><div class="sub" style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">After that</div><div style="font-size:18px">' + f12(T[c + 2].s) + ' · ' + e(af.label) + '</div></div>';
+    h += lateHtml(D, S);
+    h += alertsHtml();
+    return h;
+  }
+  function alertsHtml() {
+    var perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+    return '<div class="card" style="padding:14px 16px"><b>Alerts before each moment</b><p class="hint" style="margin:4px 0 10px">While the app is open: a sound, a vibration on Android, and a banner' + (perm === 'granted' ? ' plus a phone notification' : '') + '.</p><div class="chips" style="margin:0;padding:0;flex-wrap:wrap">' +
+      [0, 5, 10, 15].map(function (n) { return '<button data-alert="' + n + '" aria-pressed="' + (ALERT === n) + '">' + (n ? n + ' min before' : 'Off') + '</button>'; }).join('') + '</div>' +
+      (perm === 'default' && ALERT ? '<div class="btns"><button class="btn" data-act="notify">Also show phone notifications</button></div>' : '') + '</div>';
   }
   function famState(S, x) { return S.fam[x.id] ? 'done' : S.later[x.id] ? 'later' : 'todo'; }
   function vFam(D, S) {
@@ -264,10 +324,24 @@
     var cats = [], by = {};
     D.shots.forEach(function (x) { if (!by[x.cat]) { by[x.cat] = []; cats.push(x.cat); } by[x.cat].push(x); });
     var must = D.shots.filter(function (x) { return x.must; }), F = S.filter || 'all', done = D.shots.filter(function (x) { return S.done[x.id]; }).length, pct = D.shots.length ? Math.round(done / D.shots.length * 100) : 0;
-    var h = '<h1 class="hello">Shot list</h1><div class="progress"><span>' + done + ' of ' + D.shots.length + ' captured</span></div><div class="bar2"><i style="width:' + pct + '%"></i></div>' +
+    var h = '<h1 class="hello">Shot list</h1><input type="search" id="q" placeholder="Search shots, Say lines, family, timeline" value="' + e(UI.q || '') + '" style="width:100%;border:1px solid var(--line);border-radius:14px;padding:12px 14px;font:inherit;background:var(--soft);color:var(--ink);margin:4px 0 12px"><div id="qres">' + (UI.q ? searchHtml(D, S, UI.q) : '') + '</div><div id="shotbody"' + (UI.q ? ' hidden' : '') + '><div class="progress"><span>' + done + ' of ' + D.shots.length + ' captured</span></div><div class="bar2"><i style="width:' + pct + '%"></i></div>' +
       '<div class="chips"><button data-flt="all" aria-pressed="' + (F === 'all') + '">Everything</button><button data-flt="must" aria-pressed="' + (F === 'must') + '">♥ Must-haves (' + must.length + ')</button>' + cats.map(function (c) { return '<button data-flt="' + e(c) + '" aria-pressed="' + (F === c) + '">' + e(c) + '</button>'; }).join('') + '</div>';
-    if (F === 'must') return h + (must.length ? '<div class="list">' + must.map(function (x, i) { return shotRow(x, i + 1, S); }).join('') + '</div>' : '<p class="sub">No must-haves marked.</p>');
+    if (F === 'must') return h + (must.length ? '<div class="list">' + must.map(function (x, i) { return shotRow(x, i + 1, S); }).join('') + '</div>' : '<p class="sub">No must-haves marked.</p>') + '</div>';
     (F === 'all' ? cats : [F]).forEach(function (c) { if (!by[c]) return; h += '<div class="h2" style="font-size:18px">' + e(c) + '</div><div class="list">' + by[c].map(function (x, i) { return shotRow(x, i + 1, S); }).join('') + '</div>'; });
+    return h + '</div>';
+  }
+
+  function searchHtml(D, S, q) {
+    q = String(q || '').trim().toLowerCase(); if (!q) return '';
+    var has = function () { for (var i = 0; i < arguments.length; i++) if (String(arguments[i] || '').toLowerCase().indexOf(q) >= 0) return true; return false; };
+    var sh = D.shots.filter(function (x) { return has(x.text, x.say, x.how, x.cat); }).slice(0, 40);
+    var fm = D.fam.filter(function (x) { return has(x.text, x.who, (x.names || []).join(' ')); }).slice(0, 20);
+    var tl = D.tl.map(function (b, i) { return { b: b, i: i }; }).filter(function (o) { return has(o.b.label, o.b.note); }).slice(0, 10);
+    if (!sh.length && !fm.length && !tl.length) return '<p class="sub">Nothing found for “' + e(q) + '”.</p>';
+    var h = '';
+    if (fm.length) h += '<div class="h2" style="font-size:18px;margin-top:6px">Family photos</div><div class="list">' + fm.map(function (x) { return '<button class="li" data-gofam="' + e(x.id) + '"><span class="ico">' + svg('people') + '</span><span class="t wrap"><b>' + e(x.text) + '</b><small>' + e(x.who || '') + '</small></span><span class="chev">›</span></button>'; }).join('') + '</div>';
+    if (sh.length) h += '<div class="h2" style="font-size:18px">Shots</div><div class="list">' + sh.map(function (x, i) { return shotRow(x, i + 1, S).replace('<b style="white-space:normal">', '<small>' + e(x.cat) + '</small><b style="white-space:normal">'); }).join('') + '</div>';
+    if (tl.length) h += '<div class="h2" style="font-size:18px">Timeline</div><div class="list">' + tl.map(function (o) { return '<button class="li" data-wtab="now"><span class="ico">' + svg('clock') + '</span><span class="t wrap"><b>' + e(o.b.label) + '</b><small>' + f12(o.b.s) + '</small></span><span class="chev">›</span></button>'; }).join('') + '</div>';
     return h;
   }
   function vContacts(D) {
@@ -284,8 +358,20 @@
       '<div class="btns"><button class="btn" data-act="clear">Clear checkmarks for this wedding</button></div>' +
       '<p class="hint">Sent from your main app ' + e(D.made || MADE) + '. If the plan changed, send it again from the main app and load it here. Your checkmarks and notes are kept.</p>';
   }
+
+  var DAY_BEFORE = ['Load this wedding on the phone (Sync)', 'Open the app once in airplane mode to test', 'Charge camera batteries', 'Charge flash batteries and spare AAs', 'Format memory cards', 'Charge phone and power bank', 'Check the weather and the rain plan', 'Check the sunset time', 'Confirm arrival time with the couple or coordinator', 'Save the addresses: tap Places and check each one', 'Pack snacks and water', 'Set out outfit and comfortable shoes', 'Fill up the gas tank'];
+  var DEFAULT_GEAR = ['2 camera bodies', 'Lenses: 24-70, 85, 35, 70-200, macro', '2 flashes and diffusers', 'Batteries for everything, plus spares', 'Memory cards, formatted', 'Reflector', 'Ring box and flat lay props', 'Steamer and clips', 'Emergency kit: safety pins, tissues, stain pen', 'Business cards'];
+  function prepCount(D, S) { var G = D.gear && D.gear.length ? D.gear : DEFAULT_GEAR, a = DAY_BEFORE.filter(function (x, i) { return S.prep['p' + i]; }).length, b = G.filter(function (x, i) { return S.gear['g' + i]; }).length; return { done: a + b, all: DAY_BEFORE.length + G.length }; }
+  function vPrep(D, S) {
+    var G = D.gear && D.gear.length ? D.gear : DEFAULT_GEAR, row = function (key, set, i, t) { var dn = !!S[set][key]; return '<button class="li' + (dn ? ' done' : '') + '" data-chk="' + set + ':' + key + '"><span class="num">' + (dn ? svg('check') : '') + '</span><span class="t wrap"><b style="font-weight:500">' + e(t) + '</b></span></button>'; };
+    var a = DAY_BEFORE.filter(function (x, i) { return S.prep['p' + i]; }).length, b = G.filter(function (x, i) { return S.gear['g' + i]; }).length;
+    return '<h1 class="hello">Packing & day before</h1><p class="sub">Checked off on this phone only.</p>' +
+      '<div class="h2" style="font-size:18px">Day before · ' + a + ' of ' + DAY_BEFORE.length + '</div><div class="list">' + DAY_BEFORE.map(function (t, i) { return row('p' + i, 'prep', i, t); }).join('') + '</div>' +
+      '<div class="h2" style="font-size:18px">Packing list · ' + b + ' of ' + G.length + '</div>' + (D.gear && D.gear.length ? '' : '<p class="hint">Your packing list from the main app shows here after you send this wedding again.</p>') + '<div class="list">' + G.map(function (t, i) { return row('g' + i, 'gear', i, t); }).join('') + '</div>' +
+      '<div class="btns"><button class="btn link" data-act="prepclear">Uncheck all</button></div>';
+  }
   function sheetHtml(D) {
-    var items = [['where', 'pin', 'Places', 'Where to be & when, with Maps'], ['contacts', 'phone', 'Contacts', 'Call or text'], ['notes', 'note', 'Notes', 'Quick notes for later']];
+    var items = [['big', 'clock', 'Big view & alerts', 'Now, next and minutes left'], ['where', 'pin', 'Places', 'Where to be & when, with Maps'], ['prep', 'list', 'Packing & day before', 'Gear and night-before checklist'], ['contacts', 'phone', 'Contacts', 'Call or text'], ['notes', 'note', 'Notes', 'Quick notes for later']];
     return '<div class="sheet" data-sheetbg="1"><div><div style="display:flex;align-items:center;margin-bottom:10px"><h3>Wedding tools</h3><button class="ib" data-sheet="0" aria-label="Close">' + svg('close') + '</button></div><div>' +
       items.map(function (x) { return '<button class="li" data-page="' + x[0] + '" style="padding:18px 0"><span class="ico">' + svg(x[1]) + '</span><span class="t"><b>' + x[2] + '</b><small>' + x[3] + '</small></span><span class="chev">›</span></button>'; }).join('') +
       '<button class="li" data-back="home" style="padding:18px 0"><span class="ico">' + svg('home') + '</span><span class="t"><b>Back to Home</b></span><span class="chev">›</span></button></div></div></div>';
@@ -297,13 +383,15 @@
     if (!CODE) h = vSetup();
     else if (UI.view === 'wedding' && D) {
       var S = stOf(D.id);
-      h = ({ overview: vOverview, now: vTimeline, where: vWhere, fam: vFam, shots: vShots, contacts: vContacts, notes: vNotes }[UI.tab] || vOverview)(D, S);
+      h = ({ overview: vOverview, now: vTimeline, where: vWhere, fam: vFam, shots: vShots, contacts: vContacts, notes: vNotes, big: vBig, prep: vPrep }[UI.tab] || vOverview)(D, S);
     } else {
       if (UI.view === 'wedding') UI.view = 'home';
       h = ({ home: vHome, weddings: vWeddings, sync: vSync, settings: vSettings }[UI.view] || vHome)();
     }
     m.innerHTML = h;
     document.getElementById('sh').innerHTML = SHEET && D && UI.view === 'wedding' ? sheetHtml(D) : '';
+    var qi = document.getElementById('q');
+    if (qi) qi.addEventListener('input', function () { UI.q = qi.value; var D2 = cur(); if (!D2) return; document.getElementById('qres').innerHTML = searchHtml(D2, stOf(D2.id), UI.q); document.getElementById('shotbody').hidden = !!String(UI.q).trim(); });
     var nt = document.getElementById('nt');
     if (nt) nt.addEventListener('input', function () { stOf(UI.wid).notes = nt.value; saveST(); });
     if (keep) window.scrollTo(0, y);
@@ -377,7 +465,8 @@
     if (b.dataset.back) {
       remember(); SHEET = false;
       if (b.dataset.back !== 'home' && UI.view === 'wedding' && UI.group) { UI.group = null; }
-      else if (b.dataset.back !== 'home' && UI.view === 'wedding' && ['where', 'contacts', 'notes'].indexOf(UI.tab) >= 0) { UI.tab = 'overview'; }
+      else if (b.dataset.back !== 'home' && UI.view === 'wedding' && UI.tab === 'big') { UI.tab = 'now'; }
+      else if (b.dataset.back !== 'home' && UI.view === 'wedding' && ['where', 'contacts', 'notes', 'prep'].indexOf(UI.tab) >= 0) { UI.tab = 'overview'; }
       else { UI.view = 'home'; UI.chose = weddingDay(); }
       saveUI(); saveST(); render(false); return;
     }
@@ -395,6 +484,16 @@
       }
       saveUI(); render(false); return;
     }
+    if (S && b.dataset.late != null) {
+      var add = +b.dataset.late;
+      if (!add) { S.shift = 0; S.shiftFrom = 0; toast('Back on time'); }
+      else { if (!S.shift) { var ci = curIdx(D); S.shiftFrom = ci >= 0 ? ci : Math.max(0, D.tl.findIndex(function (x, i) { return !S.done['t' + i]; })); } S.shift = (S.shift || 0) + add; toast('Running ' + S.shift + ' min late. New times are shown.'); }
+      saveST(); render(true); return;
+    }
+    if (b.dataset.alert != null) { ALERT = +b.dataset.alert; try { localStorage.setItem('gabi-day-alert', String(ALERT)); } catch (x) {} beepInit(); toast(ALERT ? 'You’ll get an alert ' + ALERT + ' min before each moment while the app is open' : 'Alerts off'); render(true); return; }
+    if (b.dataset.chk) { var pr = b.dataset.chk.split(':'), D3 = cur(); if (!D3) return; var S3 = stOf(D3.id); S3[pr[0]][pr[1]] = !S3[pr[0]][pr[1]]; saveST(); render(true); return; }
+    if (b.dataset.prepfor) { remember(); UI.view = 'wedding'; UI.wid = b.dataset.prepfor; UI.tab = 'prep'; UI.group = null; saveUI(); render(false); return; }
+    if (S && b.dataset.gofam) { remember(); UI.tab = 'fam'; UI.group = b.dataset.gofam; UI.q = ''; saveUI(); render(false); return; }
     if (S && b.dataset.t) { S.done[b.dataset.t] = !S.done[b.dataset.t]; saveST(); render(true); return; }
     if (S && b.dataset.open) { S.open[b.dataset.open] = !S.open[b.dataset.open]; saveST(); render(true); return; }
     if (S && b.dataset.flt) { S.filter = b.dataset.flt; saveST(); render(false); return; }
@@ -416,10 +515,12 @@
     if (act === 'edit') { EDIT = !EDIT; render(true); return; }
     if (act === 'changecode') { if (confirm('Change the pairing code? Your weddings stay on this phone.')) { CODE = null; del('code'); render(false); } return; }
     if (act === 'wipe') { if (confirm('Remove all weddings, checkmarks and notes from this phone? Your main app keeps everything.')) { WEDS = []; ST = {}; MADE = ''; UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' }; saveUI(); Promise.all([del('weddings'), del('state'), del('made')]).then(function () { render(false); toast('Removed from this phone'); }); } return; }
+    if (act === 'notify') { try { Notification.requestPermission().then(function () { render(true); }); } catch (x) {} return; }
+    if (act === 'prepclear' && S) { if (confirm('Uncheck the packing and day-before lists for this wedding?')) { S.gear = {}; S.prep = {}; saveST(); render(true); } return; }
     if (act === 'load') { loadWeddings(); return; }
     if (act === 'sendback') { sendBack(); return; }
     if (act === 'wake') { wake(true); return; }
-    if (act === 'clear' && S) { if (confirm('Clear all checkmarks for this wedding? Your notes stay.')) { S.done = {}; S.fam = {}; S.later = {}; saveST(); render(true); toast('Cleared'); } return; }
+    if (act === 'clear' && S) { if (confirm('Clear all checkmarks for this wedding? Your notes stay.')) { S.done = {}; S.fam = {}; S.later = {}; S.shift = 0; saveST(); render(true); toast('Cleared'); } return; }
   });
 
   /* remember where you were, and refresh the clock without jumping the page */
@@ -428,12 +529,42 @@
   ['touchstart', 'pointerdown', 'scroll', 'keydown'].forEach(function (n) { window.addEventListener(n, function () { lastTouch = Date.now(); }, { passive: true, capture: true }); });
   setInterval(function () {
     var c = document.getElementById('clock'); if (c) c.textContent = clockNow();
-    var D = cur(); if (UI.view === 'wedding' && (UI.tab === 'now' || UI.tab === 'overview') && D && isToday(D) && !SHEET && Date.now() - lastTouch > 15000 && !document.hidden) render(true);
+    var D = cur(); if (UI.view === 'wedding' && UI.tab === 'big' && D && !SHEET && !document.hidden) render(true); else if (UI.view === 'wedding' && (UI.tab === 'now' || UI.tab === 'overview') && D && isToday(D) && !SHEET && Date.now() - lastTouch > 15000 && !document.hidden) render(true);
   }, 30000);
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') { try { if (localStorage.getItem('gabi-day-wl') === '1') wake(false); } catch (x) {} var c = document.getElementById('clock'); if (c) c.textContent = clockNow(); }
     else { remember(); saveUI(); saveST(); }
   });
+
+
+  /* ---------- alerts a few minutes before each moment (while the app is open) ---------- */
+  function beepInit() { try { if (!BEEP) BEEP = new (window.AudioContext || window.webkitAudioContext)(); if (BEEP.state === 'suspended') BEEP.resume(); } catch (x) {} }
+  function beep() { try { beepInit(); if (!BEEP) return; [0, 0.28].forEach(function (t) { var o = BEEP.createOscillator(), g = BEEP.createGain(); o.frequency.value = 880; o.connect(g); g.connect(BEEP.destination); g.gain.setValueAtTime(0.0001, BEEP.currentTime + t); g.gain.exponentialRampToValueAtTime(0.3, BEEP.currentTime + t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, BEEP.currentTime + t + 0.22); o.start(BEEP.currentTime + t); o.stop(BEEP.currentTime + t + 0.25); }); } catch (x) {} }
+  function banner(t) {
+    var old = document.getElementById('alertban'); if (old) old.remove();
+    var d = document.createElement('div'); d.id = 'alertban'; d.setAttribute('role', 'alert');
+    d.style.cssText = 'position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 10px);z-index:40;background:var(--dark);color:var(--bg);border-radius:16px;padding:14px 16px;display:flex;gap:12px;align-items:center;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.25)';
+    d.innerHTML = '<span style="flex:1">' + e(t) + '</span><button style="border:0;background:var(--bg);color:var(--ink);border-radius:10px;padding:8px 14px;font-weight:700">OK</button>';
+    d.querySelector('button').onclick = function () { d.remove(); };
+    document.body.appendChild(d); setTimeout(function () { if (d.parentNode) d.remove(); }, 60000);
+  }
+  function checkAlerts() {
+    if (!ALERT) return;
+    WEDS.forEach(function (D) {
+      if (!isToday(D)) return; var S = stOf(D.id), T = sched(D, S).t, m = nowMin(D);
+      D.tl.forEach(function (b, i) {
+        var t = T[i].s, key = i + '@' + t; if (S.alerted[key] || S.done['t' + i]) return;
+        if (m >= t - ALERT && m < t) {
+          S.alerted[key] = 1; saveST();
+          var msg = 'In ' + (t - m) + ' min: ' + b.label + ' (' + f12(t) + ')';
+          banner(msg); beep(); try { if (navigator.vibrate) navigator.vibrate([250, 120, 250]); } catch (x) {}
+          try { if ('Notification' in window && Notification.permission === 'granted' && navigator.serviceWorker) navigator.serviceWorker.ready.then(function (r) { r.showNotification(D.couple, { body: msg, tag: 'gabi-' + key, icon: 'icons/icon-192.png' }); }); } catch (x) {}
+        }
+      });
+    });
+  }
+  setInterval(checkAlerts, 20000);
+  document.addEventListener('pointerdown', beepInit, { once: true, capture: true });
 
   /* ---------- start ---------- */
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
@@ -442,7 +573,7 @@
     CODE = r[0] || null; WEDS = Array.isArray(r[1]) ? r[1] : []; MADE = r[2] || ''; ST = r[3] || {};
     if (UI.view === 'wedding' && !cur()) { UI.view = 'home'; UI.wid = null; }
     if (UI.view !== 'wedding') { var t = WEDS.filter(function (D) { return isToday(D); })[0]; if (t && UI.chose !== weddingDay()) { UI.view = 'wedding'; UI.wid = t.id; UI.tab = 'overview'; } }
-    render(false);
+    render(false); checkAlerts();
     try { if (localStorage.getItem('gabi-day-wl') === '1') wake(false); } catch (x) {}
   });
 })();
