@@ -1,5 +1,5 @@
 /* Offline support: keeps the app files on the phone so it opens with no signal. */
-const CACHE = 'gabi-day-v1';
+const CACHE = 'gabi-day-v2';
 const FILES = ['./', './index.html', './app.js', './manifest.webmanifest', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {

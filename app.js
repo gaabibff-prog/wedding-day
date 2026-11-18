@@ -105,12 +105,16 @@
     var h = '', list = WEDS.slice().sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
     var today = weddingDay();
     if (!list.length) h += '<div class="card"><b>No weddings on this phone yet</b><p class="hint" style="margin:6px 0 0">In your main app, tap <b>📲 Send to my Day-of app</b>. Save the file, then tap <b>Load weddings</b> below and pick it.</p></div>';
-    list.forEach(function (D) {
-      var s = stOf(D.id), n = Object.keys(s.done).filter(function (k) { return s.done[k] && k.charAt(0) !== 't'; }).length;
-      h += '<button class="card wed" data-wid="' + e(D.id) + '"><b>' + e(D.couple) + '</b>' + (D.date === today ? '<span class="badge">Today</span>' : '') +
-        '<div class="hint">' + e(D.dateLabel) + (D.venue ? ' · ' + e(D.venue) : '') + '</div>' +
-        '<div class="hint">' + D.shots.length + ' shots · ' + D.fam.length + ' family groups' + (n ? ' · ' + n + ' checked' : '') + '</div></button>';
-    });
+    var up = list.filter(function (D) { return D.date >= today; }), past = list.filter(function (D) { return D.date < today; }).reverse();
+    function card(D) {
+      var s = stOf(D.id), n = Object.keys(s.done).filter(function (k) { return s.done[k] && k.charAt(0) !== 't'; }).length + Object.keys(s.fam).filter(function (k) { return s.fam[k]; }).length;
+      return '<div style="position:relative"><button class="card wed" data-wid="' + e(D.id) + '" style="padding-right:84px"><b>' + e(D.couple) + '</b>' + (D.date === today ? '<span class="badge">Today</span>' : '') +
+        '<div class="hint">' + e(D.dateLabel) + (D.venue ? ' \u00b7 ' + e(D.venue) : '') + '</div>' +
+        '<div class="hint">' + D.shots.length + ' shots \u00b7 ' + D.fam.length + ' family groups' + (n ? ' \u00b7 ' + n + ' checked' : '') + '</div></button>' +
+        '<button class="btn dg" data-rm="' + e(D.id) + '" style="position:absolute;right:10px;top:12px;min-height:38px;padding:0 10px;font-size:14px">Remove</button></div>';
+    }
+    up.forEach(function (D) { h += card(D); });
+    if (past.length) h += '<h2>Past weddings</h2>' + past.map(card).join('');
     h += '<div class="btns"><button class="btn ok full" data-act="load">Load weddings from my main app</button></div>';
     if (MADE) h += '<p class="hint">Last loaded: weddings sent ' + e(MADE) + '.</p>';
     if (list.length) h += '<div class="btns"><button class="btn full" data-act="sendback">Send checkmarks & notes back to my main app</button></div>';
@@ -208,10 +212,11 @@
       if (!f) return;
       return f.text().then(function (t) { return unlock(t, CODE); }).then(function (r) {
         if (r.kind !== 'weddings' || !Array.isArray(r.data.weddings)) throw new Error('That file is not a weddings file from your main app.');
-        WEDS = r.data.weddings; MADE = r.data.made || '';
+        var got = r.data.weddings, ids = got.map(function (x) { return x.id; });
+        WEDS = WEDS.filter(function (x) { return ids.indexOf(x.id) < 0; }).concat(got); MADE = r.data.made || '';
         return Promise.all([put('weddings', WEDS), put('made', MADE)]).then(function () {
           if (UI.wid && !cur()) { UI.view = 'home'; UI.wid = null; saveUI(); }
-          render(false); toast('✓ ' + WEDS.length + ' wedding' + (WEDS.length === 1 ? '' : 's') + ' saved on this phone');
+          render(false); toast('✓ ' + got.length + ' wedding' + (got.length === 1 ? '' : 's') + ' saved on this phone');
         });
       });
     }).catch(function (err) { toast(err && err.message ? err.message : 'Could not open that file.'); });
@@ -260,6 +265,14 @@
     if (S && b.dataset.open) { S.open[b.dataset.open] = !S.open[b.dataset.open]; saveST(); render(true); return; }
     if (S && b.dataset.flt) { S.filter = b.dataset.flt; saveST(); render(false); return; }
     if (S && b.dataset.q) { var d = new Date(); S.notes = (S.notes ? S.notes + '\n' : '') + f12(d.getHours() * 60 + d.getMinutes()) + ' ' + b.dataset.q; saveST(); render(true); toast('Added'); return; }
+    if (b.dataset.rm) {
+      var R = WEDS.filter(function (x) { return x.id === b.dataset.rm; })[0];
+      if (R && confirm('Remove ' + R.couple + ' from this phone? Send your checkmarks back first if you need them. Your main app keeps the wedding.')) {
+        WEDS = WEDS.filter(function (x) { return x !== R; }); delete ST[R.id]; if (UI.wid === R.id) { UI.wid = null; UI.view = 'home'; saveUI(); }
+        Promise.all([put('weddings', WEDS), put('state', ST)]).then(function () { render(true); toast('Removed from this phone'); });
+      }
+      return;
+    }
     var act = b.dataset.act;
     if (act === 'savecode') {
       var c = normCode(document.getElementById('code').value);
