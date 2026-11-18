@@ -55,7 +55,7 @@
 
 
   /* ---------- state ---------- */
-  var VERSION = 1, CODE = null, MONEY = { trips: [], receipts: [], odo: {} }, MSHEET = null, VIEW = 'drives';
+  var VERSION = 2, TRK = null, WATCH = null, WL = null, CODE = null, MONEY = { trips: [], receipts: [], odo: {} }, MSHEET = null, VIEW = 'drives';
   try { VIEW = localStorage.getItem('gabi-money-view') || 'drives'; } catch (x) {}
   function e(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function f12(m) { m = ((Math.round(m) % 1440) + 1440) % 1440; var h = Math.floor(m / 60), mi = m % 60; return ((h % 12) || 12) + ':' + (mi < 10 ? '0' : '') + mi + ' ' + (h < 12 ? 'AM' : 'PM'); }
@@ -180,6 +180,46 @@
   }
 
 
+
+  /* ---------- live GPS drive tracking (app open on screen) ---------- */
+  function trkSave() { try { localStorage.setItem('gabi-money-trk', TRK ? JSON.stringify(TRK) : ''); } catch (x) {} }
+  function hav(a, b) { var R = 3958.8, r = Math.PI / 180, dLa = (b.la - a.la) * r, dLo = (b.lo - a.lo) * r, x = Math.sin(dLa / 2) * Math.sin(dLa / 2) + Math.cos(a.la * r) * Math.cos(b.la * r) * Math.sin(dLo / 2) * Math.sin(dLo / 2); return 2 * R * Math.asin(Math.min(1, Math.sqrt(x))); }
+  function wakeOn() { try { if ('wakeLock' in navigator && !WL) navigator.wakeLock.request('screen').then(function (l) { WL = l; l.addEventListener('release', function () { WL = null; }); }, function () {}); } catch (x) {} }
+  function onPos(pos) {
+    if (!TRK) return; var c = pos.coords, pt = { la: c.latitude, lo: c.longitude, t: pos.timestamp || Date.now() };
+    TRK.acc = Math.round(c.accuracy || 0);
+    if (c.accuracy && c.accuracy > 60) { paintTrk(); return; }
+    if (TRK.last) {
+      var d = hav(TRK.last, pt), dt = Math.max(1, (pt.t - TRK.last.t) / 1000), mph = d / (dt / 3600);
+      if (dt > 45) { if (d > 0.05) { TRK.miles += d * 1.25; TRK.est = (TRK.est || 0) + d * 1.25; } TRK.last = pt; }
+      else if (d * 1609 >= 12 && mph < 110) { TRK.miles += d; TRK.last = pt; }
+    } else TRK.last = pt;
+    trkSave(); paintTrk();
+  }
+  function startWatch() {
+    if (!('geolocation' in navigator)) { toast('This phone can’t share its location with the app.'); return false; }
+    if (WATCH != null) navigator.geolocation.clearWatch(WATCH);
+    WATCH = navigator.geolocation.watchPosition(onPos, function (er) { toast(er && er.code === 1 ? 'Location is off for Gabi Money. Allow it in Settings → Privacy → Location Services → Safari Websites (While Using).' : 'Waiting for GPS…'); }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 30000 });
+    wakeOn(); return true;
+  }
+  function trkStart() { TRK = { start: new Date().toISOString(), miles: 0, last: null, est: 0 }; trkSave(); if (startWatch()) { render(false); toast('Tracking. Keep Gabi Money open on screen while you drive.'); } }
+  function trkStop(save) {
+    if (WATCH != null) { navigator.geolocation.clearWatch(WATCH); WATCH = null; } if (WL) { try { WL.release(); } catch (x) {} WL = null; }
+    var t = TRK; TRK = null; trkSave(); if (!t) return;
+    var mi = Math.round(t.miles * 10) / 10;
+    if (save && mi >= 0.2) { var st = new Date(t.start); MONEY.trips.push({ id: 'g' + st.getTime(), date: dayIso(st), start: t.start, end: new Date().toISOString(), from: '', to: '', miles: mi, purpose: '', business: null, wedding: '', auto: true, tracked: true, estimated: Math.round((t.est || 0) * 10) / 10 }); saveMoney(); toast('✓ Saved ' + mi + ' miles. Mark it Business or Personal below.'); }
+    else if (save) toast('Under 0.2 miles, so it wasn’t saved.');
+    render(false);
+  }
+  function trkMins() { return TRK ? Math.max(0, Math.round((Date.now() - new Date(TRK.start).getTime()) / 60000)) : 0; }
+  function trkCard() {
+    if (!TRK) return '<div class="card" style="display:flex;align-items:center;gap:12px"><span class="ico">' + svg('car') + '</span><div style="flex:1"><b style="font-size:18px">Track a drive</b><div class="sub">Keep the app open on screen while you drive</div></div><button class="btn dark" data-act="trkstart" style="width:auto">Start</button></div>';
+    return '<div class="card" id="trkcard" style="border-color:var(--ok);text-align:center"><div class="sub" style="text-transform:uppercase;letter-spacing:.08em;font-weight:700;font-size:13px;color:var(--ok)">● Tracking</div><div id="trkmi" style="font-size:56px;font-weight:700;line-height:1.1;margin:6px 0">' + (Math.round(TRK.miles * 10) / 10).toFixed(1) + '</div><div class="sub">miles · <span id="trkmin">' + trkMins() + '</span> min' + (TRK.acc ? ' · GPS ±' + TRK.acc + ' m' : ' · finding GPS…') + '</div>' + (TRK.est ? '<p class="hint" style="margin:8px 0 0">' + (Math.round(TRK.est * 10) / 10) + ' mi estimated while the app was in the background.</p>' : '') + '<p class="hint" style="margin:8px 0 0">Keep this screen open. If you switch apps, it fills in the gap when you come back.</p><div class="row2" style="margin-top:12px"><button class="btn dark" data-act="trkstop">Stop & save</button><button class="btn" data-act="trkcancel">Cancel</button></div></div>';
+  }
+  function paintTrk() { var a = document.getElementById('trkmi'); if (!a || !TRK) return; a.textContent = (Math.round(TRK.miles * 10) / 10).toFixed(1); var b = document.getElementById('trkmin'); if (b) b.textContent = trkMins(); }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && TRK) { wakeOn(); startWatch(); paintTrk(); } });
+  setInterval(paintTrk, 15000);
+
   /* ---------- screens ---------- */
   var TABS = [['drives', 'Drives', 'car'], ['receipts', 'Receipts', 'receipt'], ['sync', 'Sync', 'sync'], ['settings', 'Settings', 'gear']];
   function vSetup() {
@@ -191,7 +231,7 @@
     return '<div class="card tint"><b>Add it to your home screen</b><p class="hint" style="margin:6px 0 0">' + (ios ? 'In Safari, tap Share, then <b>Add to Home Screen</b>.' : 'In Chrome, tap ⋮, then <b>Install app</b>.') + ' Always open it from the icon.</p></div>';
   }
   var RH = '<div class="h2">Receipts</div>', DH = '<div class="h2">Drives</div>';
-  function vDrivesOnly() { var h = vMoney(), i = h.indexOf(RH), j = h.indexOf(DH); return i >= 0 && j > i ? h.slice(0, i) + h.slice(j) : h; }
+  function vDrivesOnly() { var h = vMoney(), i = h.indexOf(RH), j = h.indexOf(DH); h = i >= 0 && j > i ? h.slice(0, i) + h.slice(j) : h; var k = h.indexOf(DH); return k >= 0 ? h.slice(0, k + DH.length) + trkCard() + h.slice(k + DH.length) : trkCard() + h; }
   function vReceiptsOnly() { var h = vMoney(), i = h.indexOf(RH), j = h.indexOf(DH); return '<h1 class="hello">Receipts</h1><p class="sub">Photo, screenshot or PDF. Claude reads them in your main app after you Sync.</p>' + (i >= 0 && j > i ? h.slice(i + RH.length, j).replace(/<p class="hint">Photo, screenshot or PDF\. Claude reads it in your main app\.<\/p>/, '') : ''); }
   function vSyncTab() {
     var unsentR = MONEY.receipts.filter(function (r) { return !r.sent; }).length, unsentT = MONEY.trips.filter(function (t) { return t.business === true && !t.sent; }).length;
@@ -312,6 +352,9 @@
     if (act === 'addreceipt') { addReceipt(); return; }
     if (act === 'importdrives') { importDrives(); return; }
     if (act === 'exportmiles') { exportMiles(); return; }
+    if (act === 'trkstart') { trkStart(); return; }
+    if (act === 'trkstop') { trkStop(true); return; }
+    if (act === 'trkcancel') { if (confirm('Cancel this drive? The miles won’t be saved.')) trkStop(false); return; }
     if (act === 'adddrive') { MSHEET = { trip: { isNew: true, date: dayIso(new Date()), miles: '', business: true } }; render(true); return; }
   });
 
@@ -319,6 +362,7 @@
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (x) {}
   Promise.all([get('code'), get('money')]).then(function (r) {
+    try { var t0 = localStorage.getItem('gabi-money-trk'); if (t0) { TRK = JSON.parse(t0); VIEW = 'drives'; setTimeout(function () { if (TRK) { startWatch(); toast('Your drive is still being tracked.'); } }, 600); } } catch (x) {}
     CODE = r[0] || null;
     if (r[1] && typeof r[1] === 'object') { MONEY = r[1]; MONEY.trips = MONEY.trips || []; MONEY.receipts = MONEY.receipts || []; MONEY.odo = MONEY.odo || {}; }
     render(false);
