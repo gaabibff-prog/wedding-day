@@ -1,6 +1,6 @@
 /* Offline support: keeps the app files on the phone so it opens with no signal.
    With signal, it checks for a newer version first (up to 3 seconds), so updates show up right away. */
-const CACHE = 'gabi-day-v15';
+const CACHE = 'gabi-day-v16';
 const FILES = ['./', './index.html', './app.js', './manifest.webmanifest', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
