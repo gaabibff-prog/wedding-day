@@ -54,7 +54,7 @@
 
 
   /* ---------- state ---------- */
-  var VERSION = 18, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
+  var VERSION = 19, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
   var UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' };
   try { var u0 = JSON.parse(localStorage.getItem('gabi-day-ui') || 'null'); if (u0) { for (var k0 in u0) UI[k0] = u0[k0]; } } catch (e) {}
   if (['home', 'weddings', 'sync', 'settings', 'wedding', 'listen'].indexOf(UI.view) < 0) UI.view = 'home';
@@ -189,7 +189,7 @@
       ('wakeLock' in navigator ? '<button class="li" data-act="wake"><span class="ico">' + svg('sun') + '</span><span class="t"><b>Keep screen on</b><small>' + (WL ? 'On while the app is open' : 'Off') + '</small></span></button>' : '') +
       '<button class="li" data-act="changecode"><span class="ico">' + svg('gear') + '</span><span class="t"><b>Change pairing code</b><small>Your weddings stay on this phone</small></span></button>' +
       '<button class="li" data-act="wipe"><span class="ico" style="color:var(--warn)">' + svg('close') + '</span><span class="t"><b style="color:var(--warn)">Remove all weddings from this phone</b><small>Your main app keeps everything</small></span></button></div>' +
-      '<p class="hint">Everything is stored only on this phone. App version ' + VERSION + '.</p>' + installHint();
+      shortcutsHtml() + '<p class="hint">Everything is stored only on this phone. App version ' + VERSION + '.</p>' + installHint();
   }
 
 
@@ -635,6 +635,7 @@ function stampNow() { var d = new Date(), h = d.getHours(), m = d.getMinutes(); 
       }
       return;
     }
+    if (b.dataset.copy) { var u = b.dataset.copy; try { navigator.clipboard.writeText(u).then(function () { toast('Link copied'); }, function () { prompt('Copy this link', u); }); } catch (x) { prompt('Copy this link', u); } return; }
     var act = b.dataset.act;
     if (act === 'savecode') {
       var c = normCode(document.getElementById('code').value);
@@ -727,6 +728,24 @@ function stampNow() { var d = new Date(), h = d.getHours(), m = d.getMinutes(); 
   }
   setInterval(function () { if (REC.on && !REC.paused) { var mn = document.getElementById('rec-min'); if (mn) mn.textContent = recMins() + ' min'; } }, 15000);
 
+  /* ---------- Siri & Shortcuts: links that open a screen ---------- */
+  var BASE = location.origin + location.pathname.replace(/index\.html$/, '');
+  function route() {
+    var h = String(location.hash || '').replace('#', '').toLowerCase(); if (!h || !CODE) return false;
+    try { history.replaceState(null, '', location.pathname); } catch (x) {}
+    if (h === 'listen') { UI.view = 'listen'; }
+    else if (h === 'today' || h === 'next') { var L = sorted().filter(function (D) { return D.date >= weddingDay(); }), D = L[0]; if (!D) { UI.view = 'home'; toast('No upcoming weddings on this phone.'); } else { UI.view = 'wedding'; UI.wid = D.id; UI.tab = isToday(D) ? 'big' : 'overview'; UI.group = null; UI.chose = weddingDay(); } }
+    else if (h === 'sync') UI.view = 'sync';
+    else if (h === 'home') UI.view = 'home';
+    else return false;
+    saveUI(); render(false); return true;
+  }
+  function shortcutsHtml() {
+    var L = [['listen', 'Start notes', 'Opens Listen & take notes'], ['today', 'Today’s wedding', 'Opens today’s wedding in Big view, or your next one'], ['sync', 'Sync weddings', 'Opens Sync']];
+    return '<div class="h2">Siri & Shortcuts</div><div class="card"><p class="hint" style="margin-top:0">Make a Shortcut for any of these, then say “Hey Siri, <i>name</i>” or add it to your Home or Lock Screen.</p>' +
+      L.map(function (x) { return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)"><span style="flex:1"><b>' + x[1] + '</b><br><small class="hint">' + x[2] + '</small></span><button class="btn" data-copy="' + e(BASE + '#' + x[0]) + '" style="width:auto;min-height:40px;font-size:15px">Copy link</button></div>'; }).join('') +
+      '<p class="hint" style="margin-bottom:0"><b>How:</b> open the Shortcuts app → <b>+</b> → Add Action → <b>Open URLs</b> → paste the link → name it (like “Start notes”). On iPhone a Shortcut opens Safari, which keeps its own copy of the app: open this app in Safari once and pair it with the same code.</p></div>';
+  }
   /* ---------- live weather for the wedding (Open-Meteo, free, no account) ---------- */
   var WX = {};
   function wxTile(D) {
@@ -788,7 +807,8 @@ function stampNow() { var d = new Date(), h = d.getHours(), m = d.getMinutes(); 
     CODE = r[0] || null; WEDS = Array.isArray(r[1]) ? r[1] : []; MADE = r[2] || ''; ST = r[3] || {};
     if (UI.view === 'wedding' && !cur()) { UI.view = 'home'; UI.wid = null; }
     if (UI.view !== 'wedding') { var t = WEDS.filter(function (D) { return isToday(D); })[0]; if (t && UI.chose !== weddingDay()) { UI.view = 'wedding'; UI.wid = t.id; UI.tab = 'overview'; } }
-    render(false); checkAlerts();
+    if (!route()) render(false); checkAlerts();
+    window.addEventListener('hashchange', function () { if (route()) return; });
     try { if (localStorage.getItem('gabi-day-wl') === '1') wake(false); } catch (x) {}
   });
 })();

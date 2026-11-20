@@ -55,7 +55,7 @@
 
 
   /* ---------- state ---------- */
-  var VERSION = 3, TRK = null, WATCH = null, WL = null, CODE = null, MONEY = { trips: [], receipts: [], odo: {} }, MSHEET = null, VIEW = 'drives';
+  var VERSION = 4, TRK = null, WATCH = null, WL = null, CODE = null, MONEY = { trips: [], receipts: [], odo: {} }, MSHEET = null, VIEW = 'drives';
   try { VIEW = localStorage.getItem('gabi-money-view') || 'drives'; } catch (x) {}
   function e(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function f12(m) { m = ((Math.round(m) % 1440) + 1440) % 1440; var h = Math.floor(m / 60), mi = m % 60; return ((h % 12) || 12) + ':' + (mi < 10 ? '0' : '') + mi + ' ' + (h < 12 ? 'AM' : 'PM'); }
@@ -241,7 +241,7 @@
       '<div class="card tint"><b>Then in your main app</b><p class="hint" style="margin:6px 0 0">Open <b>Money → Books</b>. In the <b>📲 From your phone</b> card, tap <b>Get from Drive</b>, then review the drives and receipts.</p></div>';
   }
   function vSettings() {
-    return '<h1 class="hello">Settings</h1><div class="list" style="margin-top:14px"><button class="li" data-act="changecode"><span class="ico">' + svg('gear') + '</span><span class="t"><b>Change pairing code</b><small>Your drives and receipts stay on this phone</small></span></button><button class="li" data-act="wipe"><span class="ico" style="color:var(--warn)">' + svg('close') + '</span><span class="t"><b style="color:var(--warn)">Remove everything from this phone</b><small>Only what you already synced is in your main app</small></span></button></div><p class="hint">Everything is stored only on this phone until you sync. Gabi Money version ' + VERSION + '.</p>' + installHint();
+    return '<h1 class="hello">Settings</h1><div class="list" style="margin-top:14px"><button class="li" data-act="changecode"><span class="ico">' + svg('gear') + '</span><span class="t"><b>Change pairing code</b><small>Your drives and receipts stay on this phone</small></span></button><button class="li" data-act="wipe"><span class="ico" style="color:var(--warn)">' + svg('close') + '</span><span class="t"><b style="color:var(--warn)">Remove everything from this phone</b><small>Only what you already synced is in your main app</small></span></button></div>' + shortcutsHtml() + '<p class="hint">Everything is stored only on this phone until you sync. Gabi Money version ' + VERSION + '.</p>' + installHint();
   }
   function render(keep) {
     var y = window.scrollY;
@@ -348,6 +348,7 @@ function stampNow() { var d = new Date(), h = d.getHours(), m = d.getMinutes(); 
     if (act === 'savecode') { var c = normCode(document.getElementById('code').value); if (c.length < 12) { toast('That code looks too short. Copy it again from your main app.'); return; } CODE = c; put('code', c).then(function () { render(false); toast('Paired.'); }); return; }
     if (act === 'changecode') { if (confirm('Change the pairing code? Your drives and receipts stay on this phone.')) { CODE = null; del('code'); render(false); } return; }
     if (act === 'wipe') { if (confirm('Remove all drives, receipts and odometer readings from this phone?')) { MONEY = { trips: [], receipts: [], odo: {} }; saveMoney().then(function () { render(false); toast('Removed from this phone'); }); } return; }
+    if (b.dataset.copy) { var u = b.dataset.copy; try { navigator.clipboard.writeText(u).then(function () { toast('Link copied'); }, function () { prompt('Copy this link', u); }); } catch (x) { prompt('Copy this link', u); } return; }
     if (act === 'sync') { syncNow(); return; }
     if (act === 'sendfile') { sendFile(); return; }
     if (act === 'addreceipt') { addReceipt(); return; }
@@ -366,6 +367,23 @@ function stampNow() { var d = new Date(), h = d.getHours(), m = d.getMinutes(); 
     try { var t0 = localStorage.getItem('gabi-money-trk'); if (t0) { TRK = JSON.parse(t0); VIEW = 'drives'; setTimeout(function () { if (TRK) { startWatch(); toast('Your drive is still being tracked.'); } }, 600); } } catch (x) {}
     CODE = r[0] || null;
     if (r[1] && typeof r[1] === 'object') { MONEY = r[1]; MONEY.trips = MONEY.trips || []; MONEY.receipts = MONEY.receipts || []; MONEY.odo = MONEY.odo || {}; }
-    render(false);
+    if (!route()) render(false);
+    window.addEventListener('hashchange', route);
   });
+  /* ---------- Siri & Shortcuts ---------- */
+  function route() {
+    var h = String(location.hash || '').replace('#', '').toLowerCase(); if (!h || !CODE) return false;
+    try { history.replaceState(null, '', location.pathname); } catch (x) {}
+    if (h === 'start') { VIEW = 'drives'; if (!TRK) { trkStart(); return true; } render(false); toast('A drive is already being tracked.'); return true; }
+    if (h === 'stop') { VIEW = 'drives'; if (TRK) { trkStop(true); return true; } render(false); toast('No drive is being tracked right now.'); return true; }
+    if (h === 'receipt') { VIEW = 'receipts'; render(false); return true; }
+    if (h === 'drives') { VIEW = 'drives'; render(false); return true; }
+    return false;
+  }
+  function shortcutsHtml() {
+    var base = location.origin + location.pathname.replace(/index\.html$/, ''), L = [['start', 'Start a drive', 'Starts GPS tracking'], ['stop', 'End my drive', 'Stops and saves the drive'], ['receipt', 'Snap a receipt', 'Opens Receipts']];
+    return '<div class="h2">Siri & Shortcuts</div><div class="card"><p class="hint" style="margin-top:0">Make a Shortcut for any of these, then say “Hey Siri, <i>name</i>”. To track every drive by itself, use a Personal Automation: <b>When CarPlay connects → Open URLs</b> with the Start link, and <b>When CarPlay disconnects</b> with the End link.</p>' +
+      L.map(function (x) { return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)"><span style="flex:1"><b>' + x[1] + '</b><br><small class="hint">' + x[2] + '</small></span><button class="btn" data-copy="' + e(base + '#' + x[0]) + '" style="width:auto;min-height:40px;font-size:15px">Copy link</button></div>'; }).join('') +
+      '<p class="hint" style="margin-bottom:0"><b>How:</b> Shortcuts app → <b>+</b> → Add Action → <b>Open URLs</b> → paste the link → name it. On iPhone a Shortcut opens Safari, which keeps its own copy of the app: open Gabi Money in Safari once and pair it with the same code. Keep it open on screen while driving.</p></div>';
+  }
 })();
