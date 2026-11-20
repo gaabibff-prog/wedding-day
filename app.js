@@ -54,10 +54,10 @@
 
 
   /* ---------- state ---------- */
-  var VERSION = 17, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
+  var VERSION = 18, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
   var UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' };
   try { var u0 = JSON.parse(localStorage.getItem('gabi-day-ui') || 'null'); if (u0) { for (var k0 in u0) UI[k0] = u0[k0]; } } catch (e) {}
-  if (['home', 'weddings', 'sync', 'settings', 'wedding'].indexOf(UI.view) < 0) UI.view = 'home';
+  if (['home', 'weddings', 'sync', 'settings', 'wedding', 'listen'].indexOf(UI.view) < 0) UI.view = 'home';
   if (['overview', 'now', 'fam', 'shots', 'where', 'contacts', 'notes', 'big', 'prep'].indexOf(UI.tab) < 0) UI.tab = 'overview';
   try { var a0 = localStorage.getItem('gabi-day-alert'); if (a0 != null) ALERT = +a0 || 0; } catch (e) {}
   function saveUI() { try { localStorage.setItem('gabi-day-ui', JSON.stringify(UI)); } catch (e) {} }
@@ -116,7 +116,7 @@
       var t = ['where', 'contacts', 'notes', 'prep'].indexOf(UI.tab) >= 0 ? 'more' : UI.tab === 'big' ? 'now' : UI.tab;
       tb.innerHTML = WED_TABS.map(function (x) { return '<button class="tab" data-wtab="' + x[0] + '"' + (t === x[0] ? ' aria-current="page"' : '') + '><span class="ti">' + svg(x[2]) + '</span>' + x[1] + '</button>'; }).join('');
     } else {
-      var name = { home: 'Home', weddings: 'Weddings', sync: 'Sync with main app', settings: 'Settings' }[UI.view] || 'Home';
+      var name = { home: 'Home', weddings: 'Weddings', sync: 'Sync with main app', settings: 'Settings', listen: 'Listen & take notes' }[UI.view] || 'Home';
       hd.innerHTML = '<div class="bar"><span class="ttl" style="padding-left:6px">' + name + '</span><span class="clock" id="clock">' + clockNow() + '</span></div>';
       tb.innerHTML = HOME_TABS.map(function (x) { return '<button class="tab" data-view="' + x[0] + '"' + (UI.view === x[0] ? ' aria-current="page"' : '') + '><span class="ti">' + svg(x[2]) + '</span>' + x[1] + '</button>'; }).join('');
     }
@@ -156,6 +156,7 @@
     } else {
       h += '<div class="card"><p class="sub" style="margin-top:0;font-size:17px">Load your next wedding when you’re ready.</p><div class="btns"><button class="btn dark" data-act="load">Load weddings</button></div></div>';
     }
+    var nc = CALLS.length; h += '<button class="card" data-view="listen" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer"><span style="font-size:28px">🎧</span><span style="flex:1"><b style="font-size:17px">Listen & take notes</b><br><span class="hint" style="margin:0">' + (REC.on ? '<b style="color:var(--warn)">● Recording now</b>' : nc ? nc + ' recording' + (nc === 1 ? '' : 's') + ' on this phone · Sync to get notes' : 'For calls on speaker and meetings. Claude writes the notes.') + '</span></span><span class="chev">›</span></button>';
     var locs = [];
     up.slice(0, 6).forEach(function (D) { (D.stops || []).forEach(function (x) { if (x.addr && locs.length < 8) locs.push({ addr: x.addr, name: x.name, couple: D.couple }); }); });
     if (locs.length) {
@@ -231,7 +232,7 @@
     var F = D.facts || [];
     if (F.length) h += '<div style="display:grid;grid-template-columns:repeat(' + Math.min(F.length, 4) + ',1fr);gap:6px;margin:14px 0 4px">' + F.map(function (x) { return '<div style="background:var(--card,#fff);border:1px solid var(--line);border-radius:14px;padding:10px 4px;text-align:center"><div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)">' + e(x.k) + '</div><div style="font-size:16px;font-weight:700;margin-top:2px">' + f12(x.t).replace(':00 ', ' ') + '</div>' + (x.sub ? '<div style="font-size:11px;color:var(--mute);margin-top:2px;line-height:1.25">' + e(x.sub) + '</div>' : '') + '</div>'; }).join('') + '</div>';
     var place = (D.stops.filter(function (x) { return x.addr; })[0] || {}).addr || D.venue || '';
-    h += '<div class="two"><a target="_blank" rel="noopener" href="https://www.google.com/search?q=' + encodeURIComponent('weather ' + place + ' ' + D.dateLabel) + '"><span class="ico">' + svg('cloud') + '</span><span><b>Weather</b><small>View forecast</small></span></a>' +
+    h += '<div class="two"><a target="_blank" rel="noopener" href="https://www.google.com/search?q=' + encodeURIComponent('weather ' + place + ' ' + D.dateLabel) + '"><span class="ico">' + svg('cloud') + '</span><span>' + wxTile(D) + '</span></a>' +
       '<div><span class="ico">' + svg('sun') + '</span><span><b>' + (D.sunset != null ? f12(D.sunset - 60) : '—') + '</b><small>Golden hour' + (D.sunset != null ? ' · sunset ' + f12(D.sunset) : '') + '</small></span></div></div>';
     var c = curIdx(D), start = c >= 0 ? c : 0, g = D.tl.slice(start, start + 3);
     h += '<div class="card tint"><div style="display:flex;align-items:center;gap:12px"><span class="ico">' + svg('clock') + '</span><div style="flex:1"><div style="font-size:22px;font-weight:700">Timeline</div><div class="sub">' + D.tl.length + ' moments planned</div></div><button class="btn link" data-wtab="now" style="width:auto;color:var(--ink)">View →</button></div>' +
@@ -427,7 +428,7 @@
       h = ({ overview: vOverview, now: vTimeline, where: vWhere, fam: vFam, shots: vShots, contacts: vContacts, notes: vNotes, big: vBig, prep: vPrep }[UI.tab] || vOverview)(D, S);
     } else {
       if (UI.view === 'wedding') UI.view = 'home';
-      h = ({ home: vHome, weddings: vWeddings, sync: vSync, settings: vSettings }[UI.view] || vHome)();
+      h = ({ home: vHome, weddings: vWeddings, sync: vSync, settings: vSettings, listen: vListen }[UI.view] || vHome)();
     }
     m.innerHTML = h;
     document.getElementById('sh').innerHTML = UI.photo && D && UI.view === 'wedding' ? photoSheet(D, UI.photo) : (SHEET && D && UI.view === 'wedding' ? sheetHtml(D) : '');
@@ -479,13 +480,14 @@ function stampNow() { var d = new Date(), h = d.getHours(), m = d.getMinutes(); 
       D.fam.forEach(function (x) { if (S.fam[x.id]) fam[x.id] = true; });
       if (Object.keys(shots).length || Object.keys(fam).length || String(S.notes || '').trim() || ph.length) out.weddings[D.id] = { couple: D.couple, shots: shots, fam: fam, notes: String(S.notes || ''), photos: ph };
     });
-    if (!Object.keys(out.weddings).length) return null;
+    if (CALLS.length) out.calls = CALLS.map(function (c) { return { id: c.id, at: c.at, title: c.title, wid: c.wid, text: c.text, mins: c.mins }; });
+    if (!Object.keys(out.weddings).length && !CALLS.length) return null;
     return lock(out, CODE, 'results');
     });
   }
   function sendBack2() {
     buildResults().then(function (text) {
-      if (!text) { toast('Nothing to send yet. Check off shots or add notes first.'); return; }
+      if (!text) { toast('Nothing to send yet. Check off shots, add notes or record a call first.'); return; }
       var who = WEDS.filter(function (D) { var S = stOf(D.id); return Object.keys(S.done).length || Object.keys(S.fam).length || String(S.notes || '').trim(); }).map(function (D) { return String(D.couple).replace(/&/g, 'and').replace(/[\\/:*?"<>|]+/g, ' ').trim(); }); var name = 'Wedding Day checkmarks - ' + (who[0] || 'notes') + (who.length > 1 ? ' + ' + (who.length - 1) + ' more' : '') + ' - ' + stampNow() + '.gabiday';
       var file = new File([text], name, { type: 'application/octet-stream' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -643,6 +645,11 @@ function stampNow() { var d = new Date(), h = d.getHours(), m = d.getMinutes(); 
     if (act === 'changecode') { if (confirm('Change the pairing code? Your weddings stay on this phone.')) { CODE = null; del('code'); render(false); } return; }
     if (act === 'wipe') { if (confirm('Remove all weddings, checkmarks and notes from this phone? Your main app keeps everything.')) { WEDS = []; ST = {}; MADE = ''; UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' }; saveUI(); Promise.all([del('weddings'), del('state'), del('made')]).then(function () { render(false); toast('Removed from this phone'); }); } return; }
     if (act === 'sync') { syncNow(); return; }
+    if (act === 'recstart') { recStart(); return; }
+    if (act === 'recpause') { recPause(); return; }
+    if (act === 'recstop') { recStop(); return; }
+    if (act === 'recdel') { var rid = b.dataset.id; if (confirm('Delete this recording from your phone? If you already synced, your main app keeps it.')) { CALLS = CALLS.filter(function (c) { return c.id !== rid; }); put('calls', CALLS); render(true); } return; }
+    if (act === 'recopen') { UI.recOpen = UI.recOpen === b.dataset.id ? '' : b.dataset.id; render(true); return; }
     if (act === 'addphoto') { addPhoto(); return; }
     if (act === 'notify') { try { Notification.requestPermission().then(function () { render(true); }); } catch (x) {} return; }
     if (act === 'prepclear' && S) { if (confirm('Uncheck the packing and day-before lists for this wedding?')) { S.gear = {}; S.prep = {}; saveST(); render(true); } return; }
@@ -665,6 +672,84 @@ function stampNow() { var d = new Date(), h = d.getHours(), m = d.getMinutes(); 
     else { remember(); saveUI(); saveST(); }
   });
 
+
+
+  /* ---------- listen & take notes: the phone types what it hears ---------- */
+  var CALLS = [], REC = { on: false, paused: false, rec: null, text: '', interim: '', title: '', wid: '', start: 0, used: 0, id: '' };
+  function SR() { return window.SpeechRecognition || window.webkitSpeechRecognition || null; }
+  function recMins() { return Math.max(1, Math.round((REC.used + (REC.on && !REC.paused ? Date.now() - REC.start : 0)) / 60000)); }
+  function vListen() {
+    var can = !!SR(), h = '<h1 class="hello">Listen & take notes</h1><p class="sub">Put the call on speaker, or set the phone on the table in a meeting. It types what it hears, then Claude writes the notes in your main app.</p>';
+    if (!can) h += '<div class="card"><b>This phone can’t listen inside the app</b><p class="hint">Your browser doesn’t offer live typing here. On iPhone, record the call in the Phone app (the record button during a call) and copy the transcript from Notes. On Android, use the Recorder app. Then paste it in your main app: Home → Call notes → Paste a transcript.</p></div>';
+    else if (!REC.on) {
+      h += '<div class="card"><label class="hint" for="rec-title" style="display:block;margin:0 0 6px">What is it?</label><input type="text" id="rec-title" placeholder="Call with Emma & Liam" value="' + e(REC.title) + '" style="width:100%;margin-bottom:10px">' +
+        '<label class="hint" for="rec-wid" style="display:block;margin:0 0 6px">Which wedding? (optional)</label><select id="rec-wid" style="width:100%;margin-bottom:12px"><option value="">Not a booked wedding (an inquiry or other)</option>' + sorted().map(function (D) { return '<option value="' + e(D.id) + '"' + (REC.wid === D.id ? ' selected' : '') + '>' + e(D.couple) + ' · ' + e(shortDate(D)) + '</option>'; }).join('') + '</select>' +
+        '<button class="btn dark" data-act="recstart" style="width:100%;min-height:56px;font-size:18px">● Start listening</button><p class="hint" style="margin:10px 0 0">Let the other person know you’re taking notes. The screen stays on while it listens. Words are typed by your phone’s speech service; the recording itself is not kept.</p></div>';
+    } else {
+      h += '<div class="card" style="border-color:var(--warn)"><div style="display:flex;align-items:center;gap:10px"><b style="color:var(--warn);font-size:18px">' + (REC.paused ? '❚❚ Paused' : '● Listening') + '</b><span class="hint" style="margin:0;flex:1" id="rec-min">' + recMins() + ' min</span></div>' +
+        '<div id="rec-live" style="margin:12px 0;max-height:46vh;overflow:auto;white-space:pre-wrap;font-size:16px;line-height:1.5">' + e(REC.text) + '<span style="color:var(--mute)">' + e(REC.interim) + '</span>' + (!REC.text && !REC.interim ? '<span class="hint">Start talking…</span>' : '') + '</div>' +
+        '<div class="row2"><button class="btn" data-act="recpause">' + (REC.paused ? 'Resume' : 'Pause') + '</button><button class="btn dark" data-act="recstop">Stop & save</button></div></div>';
+    }
+    if (CALLS.length) {
+      h += '<div class="h2">On this phone</div><div class="list">' + CALLS.slice().reverse().map(function (c) {
+        var op = UI.recOpen === c.id, D = WEDS.filter(function (x) { return x.id === c.wid; })[0];
+        return '<div class="li" style="display:block;padding:12px 16px"><button class="t" data-act="recopen" data-id="' + e(c.id) + '" style="border:0;background:none;text-align:left;padding:0;width:100%"><b>' + e(c.title || 'Call') + '</b><small>' + e(new Date(c.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })) + ' · ' + c.mins + ' min' + (D ? ' · ' + e(D.couple) : '') + '</small></button>' +
+          (op ? '<p style="white-space:pre-wrap;font-size:15px;margin:10px 0">' + e(c.text) + '</p><button class="btn dg" data-act="recdel" data-id="' + e(c.id) + '" style="width:auto;min-height:40px;font-size:15px">Delete</button>' : '') + '</div>';
+      }).join('') + '</div><div class="card tint" style="margin-top:12px"><b>Get the notes</b><p class="hint" style="margin:6px 0 10px">Tap Sync. In your main app, open Home → Call notes and tap <b>Write notes with Claude</b>.</p><button class="btn dark" data-act="sync"' + (SYNCING ? ' disabled' : '') + '>' + (SYNCING ? 'Syncing…' : 'Sync now') + '</button></div>';
+    }
+    return h;
+  }
+  function recPaint() { var el = document.getElementById('rec-live'); if (!el) return; var atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 30; el.innerHTML = e(REC.text) + '<span style="color:var(--mute)">' + (REC.interim ? ' ' + e(REC.interim) : '') + '</span>'; if (atEnd) el.scrollTop = el.scrollHeight; var mn = document.getElementById('rec-min'); if (mn) mn.textContent = recMins() + ' min'; }
+  function recSaveDraft() { put('calldraft', { id: REC.id, at: REC.at, title: REC.title || 'Call', wid: REC.wid, text: REC.text, mins: recMins() }); }
+  function recListen() {
+    var C = SR(); if (!C || !REC.on || REC.paused) return;
+    var r = new C(); REC.rec = r; r.lang = 'en-US'; r.continuous = true; r.interimResults = true;
+    r.onresult = function (ev) { var fin = '', mid = ''; for (var i = ev.resultIndex; i < ev.results.length; i++) { var t = ev.results[i][0].transcript; if (ev.results[i].isFinal) fin += t; else mid += t; }
+      if (fin) { fin = fin.trim(); REC.text += (REC.text && !/\s$/.test(REC.text) ? ' ' : '') + fin.charAt(0).toUpperCase() + fin.slice(1) + (/[.?!]$/.test(fin) ? '' : '.'); recSaveDraft(); }
+      REC.interim = mid; recPaint(); };
+    r.onerror = function (ev) { if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { REC.on = false; REC.rec = null; toast('The microphone is blocked. Allow it for this app in your phone settings, then try again.'); render(true); } };
+    r.onend = function () { REC.rec = null; REC.interim = ''; if (REC.on && !REC.paused) setTimeout(recListen, 250); };
+    try { r.start(); } catch (x) {}
+  }
+  function recStart() {
+    var ti = document.getElementById('rec-title'), wi = document.getElementById('rec-wid');
+    REC = { on: true, paused: false, rec: null, text: '', interim: '', title: (ti && ti.value.trim()) || '', wid: wi ? wi.value : '', start: Date.now(), used: 0, id: 'rc' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at: Date.now() };
+    if (!REC.title) { var D = WEDS.filter(function (x) { return x.id === REC.wid; })[0]; REC.title = D ? 'Call with ' + D.couple : 'Call'; }
+    if (!WL) wake(false); recListen(); render(true);
+  }
+  function recPause() { if (!REC.on) return; if (REC.paused) { REC.paused = false; REC.start = Date.now(); recListen(); } else { REC.paused = true; REC.used += Date.now() - REC.start; try { REC.rec && REC.rec.stop(); } catch (x) {} } render(true); }
+  function recStop() {
+    if (!REC.on) return; var mins = recMins(); REC.on = false; try { REC.rec && REC.rec.stop(); } catch (x) {}
+    var txt = (REC.text + (REC.interim ? ' ' + REC.interim : '')).trim();
+    if (!txt) { toast('Nothing was heard, so nothing was saved.'); del('calldraft'); render(true); return; }
+    CALLS.push({ id: REC.id, at: REC.at, title: REC.title, wid: REC.wid, text: txt, mins: mins }); put('calls', CALLS); del('calldraft');
+    REC.text = ''; REC.interim = ''; UI.recOpen = ''; render(false); toast('Saved. Tap Sync to send it to your main app.');
+  }
+  setInterval(function () { if (REC.on && !REC.paused) { var mn = document.getElementById('rec-min'); if (mn) mn.textContent = recMins() + ' min'; } }, 15000);
+
+  /* ---------- live weather for the wedding (Open-Meteo, free, no account) ---------- */
+  var WX = {};
+  function wxTile(D) {
+    var w = WX[D.id], d = daysTo(D.date);
+    if (D.lat != null && d >= 0 && d <= 15) { if (!w || Date.now() - w.at > 3600000) wxLoad(D); }
+    if (!w || !w.ok) return '<b>Weather</b><small>' + (d > 15 ? 'Forecast opens ' + (d - 15) + ' days before' : 'View forecast') + '</small>';
+    return '<b>' + w.hi + '° / ' + w.lo + '°</b><small>' + w.rain + '% rain' + (w.cer ? ' · ceremony ' + w.cer : '') + '</small>';
+  }
+  function wxLoad(D) {
+    if (WX[D.id] && WX[D.id].loading) return; WX[D.id] = Object.assign({}, WX[D.id] || {}, { loading: true });
+    get('wx:' + D.id).then(function (c) {
+      if (c && c.ok && !WX[D.id].ok) { WX[D.id] = Object.assign(c, { loading: true }); render(true); }
+      if (!navigator.onLine) { WX[D.id].loading = false; return; }
+      var u = 'https://api.open-meteo.com/v1/forecast?latitude=' + D.lat + '&longitude=' + D.lng + '&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&hourly=temperature_2m,precipitation_probability&temperature_unit=fahrenheit&timezone=America%2FNew_York&start_date=' + D.date + '&end_date=' + D.date;
+      return fetch(u).then(function (r) { return r.json(); }).then(function (j) {
+        var dl = j && j.daily; if (!dl || !dl.temperature_2m_max) throw new Error('no data');
+        var o = { ok: true, at: Date.now(), hi: Math.round(dl.temperature_2m_max[0]), lo: Math.round(dl.temperature_2m_min[0]), rain: dl.precipitation_probability_max[0] == null ? 0 : dl.precipitation_probability_max[0], cer: '' };
+        var cb = D.tl.filter(function (b) { return b.cer; })[0], hr = j.hourly;
+        if (cb && hr && hr.temperature_2m) { var k = Math.max(0, Math.min(23, Math.floor(((cb.s % 1440) + 1440) % 1440 / 60))); o.cer = Math.round(hr.temperature_2m[k]) + '°, ' + (hr.precipitation_probability[k] || 0) + '%'; }
+        WX[D.id] = o; put('wx:' + D.id, o); if (UI.view === 'wedding' && UI.wid === D.id && UI.tab === 'overview') render(true);
+      });
+    }).catch(function () { if (WX[D.id]) { WX[D.id].loading = false; WX[D.id].at = Date.now(); } });
+  }
 
   /* ---------- alerts a few minutes before each moment (while the app is open) ---------- */
   function beepInit() { try { if (!BEEP) BEEP = new (window.AudioContext || window.webkitAudioContext)(); if (BEEP.state === 'suspended') BEEP.resume(); } catch (x) {} }
@@ -698,7 +783,8 @@ function stampNow() { var d = new Date(), h = d.getHours(), m = d.getMinutes(); 
   /* ---------- start ---------- */
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (x) {}
-  Promise.all([get('code'), get('weddings'), get('made'), get('state')]).then(function (r) {
+  Promise.all([get('code'), get('weddings'), get('made'), get('state'), get('calls'), get('calldraft')]).then(function (r) {
+    CALLS = Array.isArray(r[4]) ? r[4] : []; if (r[5] && r[5].text && String(r[5].text).trim()) { CALLS.push(r[5]); put('calls', CALLS); del('calldraft'); }
     CODE = r[0] || null; WEDS = Array.isArray(r[1]) ? r[1] : []; MADE = r[2] || ''; ST = r[3] || {};
     if (UI.view === 'wedding' && !cur()) { UI.view = 'home'; UI.wid = null; }
     if (UI.view !== 'wedding') { var t = WEDS.filter(function (D) { return isToday(D); })[0]; if (t && UI.chose !== weddingDay()) { UI.view = 'wedding'; UI.wid = t.id; UI.tab = 'overview'; } }
