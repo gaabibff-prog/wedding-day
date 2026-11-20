@@ -54,7 +54,7 @@
 
 
   /* ---------- state ---------- */
-  var VERSION = 16, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
+  var VERSION = 17, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
   var UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' };
   try { var u0 = JSON.parse(localStorage.getItem('gabi-day-ui') || 'null'); if (u0) { for (var k0 in u0) UI[k0] = u0[k0]; } } catch (e) {}
   if (['home', 'weddings', 'sync', 'settings', 'wedding'].indexOf(UI.view) < 0) UI.view = 'home';
@@ -227,7 +227,9 @@
   /* ---------- wedding screens ---------- */
   function curIdx(D) { if (!isToday(D)) return -1; var T = sched(D, stOf(D.id)).t, m = nowMin(D), c = -1; T.forEach(function (b, i) { if (m >= b.s && m < b.s + Math.max(b.d, 1)) c = i; }); if (c < 0) T.forEach(function (b, i) { if (c < 0 && b.s > m) c = i; }); return c; }
   function vOverview(D, S) {
-    var h = '<h1 class="big">' + e(D.couple) + '</h1><div class="meta">' + svg('cal') + e(shortDate(D)) + '</div>' + (D.venue || (D.stops[0] && D.stops[0].addr) ? '<div class="meta">' + svg('pin') + e(D.venue || D.stops[0].addr.split(',')[0]) + '</div>' : '');
+    var h = (D.photo ? '<img src="' + D.photo + '" alt="" style="width:100%;height:210px;object-fit:cover;border-radius:18px;display:block;margin:0 0 14px">' : '') + '<h1 class="big">' + e(D.couple) + '</h1><div class="meta">' + svg('cal') + e(shortDate(D)) + '</div>' + (D.venue || (D.stops[0] && D.stops[0].addr) ? '<div class="meta">' + svg('pin') + e(D.venue || D.stops[0].addr.split(',')[0]) + '</div>' : '');
+    var F = D.facts || [];
+    if (F.length) h += '<div style="display:grid;grid-template-columns:repeat(' + Math.min(F.length, 4) + ',1fr);gap:6px;margin:14px 0 4px">' + F.map(function (x) { return '<div style="background:var(--card,#fff);border:1px solid var(--line);border-radius:14px;padding:10px 4px;text-align:center"><div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)">' + e(x.k) + '</div><div style="font-size:16px;font-weight:700;margin-top:2px">' + f12(x.t).replace(':00 ', ' ') + '</div>' + (x.sub ? '<div style="font-size:11px;color:var(--mute);margin-top:2px;line-height:1.25">' + e(x.sub) + '</div>' : '') + '</div>'; }).join('') + '</div>';
     var place = (D.stops.filter(function (x) { return x.addr; })[0] || {}).addr || D.venue || '';
     h += '<div class="two"><a target="_blank" rel="noopener" href="https://www.google.com/search?q=' + encodeURIComponent('weather ' + place + ' ' + D.dateLabel) + '"><span class="ico">' + svg('cloud') + '</span><span><b>Weather</b><small>View forecast</small></span></a>' +
       '<div><span class="ico">' + svg('sun') + '</span><span><b>' + (D.sunset != null ? f12(D.sunset - 60) : '—') + '</b><small>Golden hour' + (D.sunset != null ? ' · sunset ' + f12(D.sunset) : '') + '</small></span></div></div>';
@@ -263,11 +265,14 @@
   function vTimeline(D, S) {
     var c = curIdx(D), T = sched(D, S).t, h = '<div style="display:flex;align-items:center"><h1 class="hello" style="flex:1">Timeline</h1><button class="btn" data-page="big" style="width:auto;min-height:40px;font-size:15px">Big view</button></div><p class="sub">' + (isToday(D) ? 'The current moment is highlighted.' : 'Planned times. On the wedding day the current moment is highlighted.') + '</p>';
     h += lateHtml(D, S);
+    var m0 = isToday(D) ? nowMin(D) : null, sunDone = D.sunset == null, sunRow = function () { return '<div style="display:flex;align-items:center;gap:8px;padding:8px 16px;color:var(--accent);font-weight:700;font-size:15px;border-bottom:1px solid var(--line)">' + svg('sun').replace('<svg', '<svg style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8"') + 'Sunset ' + f12(D.sunset) + '</div>'; };
     h += '<div class="list">' + D.tl.map(function (b, i) {
+      var pre = ''; if (!sunDone && T[i].s >= D.sunset) { sunDone = true; pre = sunRow(); }
+      var soon = m0 != null && T[i].s > m0 && T[i].s - m0 <= 120 ? ' <span style="color:var(--accent);font-weight:700;font-size:13px">in ' + (T[i].s - m0) + ' min</span>' : '';
       var dn = !!S.done['t' + i], op = !!S.open['t' + i], moved = T[i].s !== b.s || T[i].d !== b.d;
       var tm = moved ? '<b style="display:inline;font-size:14px;color:var(--warn)">' + f12(T[i].s) + ' – ' + f12(T[i].s + T[i].d) + '</b> <s>' + f12(b.s) + '</s>' : f12(b.s) + ' – ' + f12(b.s + b.d);
-      return '<div class="li' + (dn ? ' done' : '') + (i === c ? ' now' : '') + '"><button class="num" data-t="t' + i + '" aria-label="Mark done">' + (dn ? svg('check') : '') + '</button><button class="t" data-open="t' + i + '" style="border:0;background:none;text-align:left;padding:0"><small style="color:var(--mute)">' + tm + '</small><b style="white-space:normal">' + e(b.label) + (b.cer ? ' ♥' : '') + '</b>' + (b.note ? (op ? '<small style="white-space:normal;color:var(--ink)">' + e(b.note) + '</small>' : '<small>Tap for notes</small>') : '') + '</button></div>';
-    }).join('') + '</div>';
+      return pre + '<div class="li' + (dn ? ' done' : '') + (i === c ? ' now' : '') + '"><button class="num" data-t="t' + i + '" aria-label="Mark done">' + (dn ? svg('check') : '') + '</button><div class="t"><small style="color:var(--mute)">' + tm + soon + '</small><b style="white-space:normal">' + e(b.label) + (b.cer ? ' ♥' : '') + '</b>' + (b.note ? '<small style="white-space:normal;color:var(--ink);opacity:.8">' + e(b.note) + '</small>' : '') + '</div></div>';
+    }).join('') + (!sunDone ? sunRow() : '') + '</div>';
     return h;
   }
   function vBig(D, S) {
