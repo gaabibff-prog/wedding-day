@@ -55,7 +55,7 @@
 
 
   /* ---------- state ---------- */
-  var VERSION = 4, TRK = null, WATCH = null, WL = null, CODE = null, MONEY = { trips: [], receipts: [], odo: {} }, MSHEET = null, VIEW = 'drives';
+  var VERSION = 5, TRK = null, WATCH = null, WL = null, CODE = null, MONEY = { trips: [], receipts: [], odo: {} }, MSHEET = null, VIEW = 'drives';
   try { VIEW = localStorage.getItem('gabi-money-view') || 'drives'; } catch (x) {}
   function e(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function f12(m) { m = ((Math.round(m) % 1440) + 1440) % 1440; var h = Math.floor(m / 60), mi = m % 60; return ((h % 12) || 12) + ':' + (mi < 10 ? '0' : '') + mi + ' ' + (h < 12 ? 'AM' : 'PM'); }
@@ -361,7 +361,7 @@ function stampNow() { var d = new Date(), h = d.getHours(), m = d.getMinutes(); 
   });
 
   /* ---------- start ---------- */
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
+  if ('serviceWorker' in navigator) { var hadSW = !!navigator.serviceWorker.controller; navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (r) { try { r.update(); } catch (x) {} }).catch(function () {}); navigator.serviceWorker.addEventListener('controllerchange', function () { if (hadSW && !TRK && !document.querySelector('input:focus,textarea:focus')) location.reload(); hadSW = true; }); }
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (x) {}
   Promise.all([get('code'), get('money')]).then(function (r) {
     try { var t0 = localStorage.getItem('gabi-money-trk'); if (t0) { TRK = JSON.parse(t0); VIEW = 'drives'; setTimeout(function () { if (TRK) { startWatch(); toast('Your drive is still being tracked.'); } }, 600); } } catch (x) {}

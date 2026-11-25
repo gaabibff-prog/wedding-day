@@ -54,7 +54,7 @@
 
 
   /* ---------- state ---------- */
-  var VERSION = 19, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
+  var VERSION = 20, PHOTOS = {}, ALERT = 10, BEEP = null, EDIT = false, SHEET = false, CODE = null, WEDS = [], MADE = '', ST = {};
   var UI = { view: 'home', wid: null, tab: 'overview', page: '', group: null, famSeg: 'todo' };
   try { var u0 = JSON.parse(localStorage.getItem('gabi-day-ui') || 'null'); if (u0) { for (var k0 in u0) UI[k0] = u0[k0]; } } catch (e) {}
   if (['home', 'weddings', 'sync', 'settings', 'wedding', 'listen'].indexOf(UI.view) < 0) UI.view = 'home';
@@ -800,7 +800,7 @@ function stampNow() { var d = new Date(), h = d.getHours(), m = d.getMinutes(); 
   document.addEventListener('pointerdown', beepInit, { once: true, capture: true });
 
   /* ---------- start ---------- */
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
+  if ('serviceWorker' in navigator) { var hadSW = !!navigator.serviceWorker.controller; navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (r) { try { r.update(); } catch (x) {} }).catch(function () {}); navigator.serviceWorker.addEventListener('controllerchange', function () { if (hadSW && !REC.on && !document.querySelector('input:focus,textarea:focus')) location.reload(); hadSW = true; }); }
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (x) {}
   Promise.all([get('code'), get('weddings'), get('made'), get('state'), get('calls'), get('calldraft')]).then(function (r) {
     CALLS = Array.isArray(r[4]) ? r[4] : []; if (r[5] && r[5].text && String(r[5].text).trim()) { CALLS.push(r[5]); put('calls', CALLS); del('calldraft'); }
